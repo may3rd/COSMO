@@ -2687,6 +2687,7 @@ class SSCellAttachmentType:
     sscaImport = 1
     sscaExport = 2
 
+
 class StreamType:
     Feedst = 0
     Productst = 1
