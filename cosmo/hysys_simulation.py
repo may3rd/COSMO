@@ -16,6 +16,9 @@ from typing import Union
 import cosmo.constants as constants
 import cosmo.hysys_typelib as hytlb
 
+OPERATION_CLASSIFICATION = ['All', 'Vessels', 'HeatTransfer', 'Rotating', 'Piping', 'SolidHandling', 'Reactor', 
+                            'Column', 'ShortCutColumn', 'SubFlowsheet', 'Logical']
+
 class Simulation():
     '''
     Skeleton class for HYSYS interface
@@ -38,32 +41,10 @@ class Simulation():
         self.HyCase = self.HyApp.SimualtionCases.Open(os.path.join(WorkingPath, Filename))
         print('The Aspen HYSYS in active now.')
         self.HyCase.Visible = Visibility
-        self.display_warning()
-
 
 
     def __init__(self):
         self.HyCase = self.HyApp.ActiveDocument
-        self.display_warning()
-
-
-    def display_warning(self):
-        print(' --- PLEASE! Be aware of the unit handling of this interface--- ')
-        print(' --- Python SI Unit Set only --- ')
-        print(' ')
-        print(' --- It is ALWAYS a good practice to check consistency in units ')
-        print('     between your Aspen HYSYS file and the Python interface. --- ')
-        print(' ')
-        print('**************************************************************** ')
-        print(' Python SI unit set: ')
-        print('   Temperature:      °C')
-        print('   Pressure:         kPa')
-        print('   Molar flowrate:   kgmole/s')
-        print('   Energy flowrate:  kJ/s')
-        print('**************************************************************** ')
-        print(' ')
-        print(' Aspen HYSYS-Python Interface has been established succesfully!')
-        print(' ')
 
 
     def CloseCase(self):
@@ -100,7 +81,16 @@ class Simulation():
     
 ########################################################################################################################
     
-    def IsStreamValid(self, name) -> bool:
+    def IsStreamValid(self, name:Union[int, str]) -> bool:
+        """
+        Check if stream called name is valid.
+
+        Args:
+            name: ethier int or string
+
+        Returns:
+            True or False
+        """
         try:
             self.Streams.Item(name)
         except com_error as e:
@@ -110,6 +100,15 @@ class Simulation():
     
     
     def IsOperationValid(self, name) -> bool:
+        """
+        Check if unit operation called name is valid.
+
+        Args:
+            name: ethier int or string
+
+        Returns:
+            True or False
+        """
         try:
             self.Operations.Item(name)
         except com_error as e:
@@ -118,9 +117,9 @@ class Simulation():
         return True
     
     
-    def Normalize_list(self, data):
+    def Normalize_values(self, data):
         """
-        Normalizes a list
+        Normalizes a list of values
 
         Args:
             data: A list of floats to be normalized.
@@ -135,6 +134,35 @@ class Simulation():
         return [x / total_sum for x in data]
     
     
+    def OperationClass(self, name:Union[int, str]) -> str:
+        return self.Operations(name).ClassificationName
+    
+
+    def ListAllStreams(self):
+        if self.Streams.Count > 0:
+            print(f'List of Streams in {self.HyCase.name} is:')
+            for i in range(self.Streams.Count):
+                stream = self.Streams(i)
+                AttOps = []
+                for j in range(stream.AttachedOpers.Count):
+                    name = stream.AttachedOpers(j).name
+                    if name != "":
+                        AttOps.append(f'"{name}"')
+
+                print(f'{i}: "{stream.name}" is connecting to: {', '.join(AttOps)}')
+        else:
+            print('No streams in current simulation case.')
+
+
+    def ListAllOperations(self):
+        if self.Operations.Count > 0:
+            print(f'List of Unit Operations in {self.HyCase.name} is:')
+            for i in range(self.Operations.Count):
+                print(f'{i}: {self.Operations(i).name} with operation class of "{self.Operations(i).ClassificationName}"')
+        else:
+            print('No unit operation in current simualtion case.')
+    
+
 ########################################################################################################################
 
 #   Method for modify stream parameters    
