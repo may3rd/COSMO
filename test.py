@@ -1,7 +1,7 @@
 from cosmo import *
 
-sim = hysys_simulation.Simulation()
+sim = hysys_simulation.simulation(filename='Test_1')
 
-#sim.Stream_SetPressure('C12', 150.0, 'kPa')
-
-print(sim.Operations(1).name)
+if sim:
+    sim.stream_set_pressure('C12', 150.0, 'kPa')
+    print(sim.component_list)

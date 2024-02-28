@@ -5,6 +5,14 @@
 
 API for controlling the Aspen Python Interface automatically
 
+This module contains interface of Aspen HYSYS V14.
+
+.. contents:: :local:
+
+HYSYS Interface Class
+---------------------
+
+
 """
 
 import os
@@ -16,63 +24,94 @@ from typing import Union
 import cosmo.constants as constants
 import cosmo.hysys_typelib as hytlb
 
+__all__ = ['simulation',
+           ]
+
 OPERATION_CLASSIFICATION = ['All', 'Vessels', 'HeatTransfer', 'Rotating', 'Piping', 'SolidHandling', 'Reactor', 
                             'Column', 'ShortCutColumn', 'SubFlowsheet', 'Logical']
 
-class Simulation():
-    '''
+
+class simulation:
+    """
     Skeleton class for HYSYS interface
-    '''
+    """
 
-    HyApp = win32.gencache.EnsureDispatch('HYSYS.Application')
-    HyCase = None
+    hysys_app = win32.gencache.EnsureDispatch('HYSYS.Application')
+    hysys_case = None
+    component_list = []
 
-    def __init__(self, Filename: str, WorkingPath:str = None, Visibility:bool = True):
+    def __init__(self, filename: str = None, working_path: str = None, visibility: bool = True):
         print('The current Directory is : ')
         print(os.getcwd())
 
-        if WorkingPath != None:
-            os.chdir(WorkingPath)
+        if working_path != None:
+            os.chdir(working_path)
             print('The new Directory where you shuold have your simulation file is : ')
             print(os.getcwd())
         else:
-            WorkingPath = os.getcwd()
+            working_path = os.getcwd()
         
-        self.HyCase = self.HyApp.SimualtionCases.Open(os.path.join(WorkingPath, Filename))
+        if filename == None:
+            # if not input filename, just use the current open simulation case
+            self.hysys_case = self.hysys_app.ActiveDocument
+        else:
+            # extract the filename and extension (if any)
+            file_name, extension = os.path.splitext(filename)
+
+            # add '.hsc' extension if none exists
+            if not extension:
+                filename = file_name + '.hsc'
+
+            print(f"The simulation case to be open is {filename}")
+            
+            # try opening the file and return None if cannot open file
+            try:
+                self.hysys_case = self.hysys_app.SimulationCases.Open(os.path.join(working_path, filename))
+            except FileNotFoundError:
+                print(f"Error: File '{filename}' not found.")
+                return None
+            except com_error as e:
+                print(f"Error open simulation case '{filename}' : {e}")
+                return None
+            
         print('The Aspen HYSYS in active now.')
-        self.HyCase.Visible = Visibility
+
+        # set simulation case visibility, default is True
+        self.hysys_case.Visible = visibility
+
+        # get the fluid package and components list
+        for i in range(self.hysys_case.BasisManager.FluidPackages.Count):
+            # add each detail of fluid package
+            self.component_list.append({"fluid package": self.hysys_case.BasisManager.FluidPackages(i).name,
+                                       "property package": self.hysys_case.BasisManager.FluidPackages(i).PropertyPackage.name, 
+                                       "components": list(self.Components(i).Names)})
+        
+        # end of __init__
+        return
 
 
-    def __init__(self):
-        self.HyCase = self.HyApp.ActiveDocument
-
-
-    def CloseCase(self):
-        activeCase = self.HyApp.ActiveDocument
+    def close_case(self) -> bool:
+        activeCase = self.hysys_app.ActiveDocument
         activeCase.Close(False)
-
+        return True
     
     @property
     def Solver(self):
-        return self.HyCase.Solver
+        return self.hysys_case.Solver
     
     
     @property
     def Operations(self):
-        return self.HyCase.Flowsheet.Operations
+        return self.hysys_case.Flowsheet.Operations
     
     
     @property
     def Streams(self):
-        return self.HyCase.Flowsheet.Streams
+        return self.hysys_case.Flowsheet.Streams
     
     
-    def ComponentList(self, name:Union[int, str] = 0):
-        return self.HyCase.BasisManager.FluidPackages.Item(name).Components.Names
-    
-    
-    def Components(self, name:Union[int, str] = 0):
-        return self.HyCase.BasisManager.FluidPackages.Item(name).Components
+    def Components(self, name: Union[int, str] = 0):
+        return self.hysys_case.BasisManager.FluidPackages.Item(name).Components
     
 
 ########################################################################################################################
@@ -81,12 +120,33 @@ class Simulation():
     
 ########################################################################################################################
     
-    def IsStreamValid(self, name:Union[int, str]) -> bool:
+    def turn_off_solver(self):
+        """turn off the solving mode"""
+        self.Solver.CanSolve = False
+
+    
+    def turn_on_solver(self):
+        """turn on the solving mode"""
+        self.Solver.CanSolve = True
+
+
+    def is_solver_running(self) -> bool:
+        """return solving status, True = still solving, Flase = finish solving"""
+        return self.Solver.IsSolving
+    
+
+    def save(self):
+        """
+        save current simulation (.hsc)
+        """
+        self.hysys_case.Save()
+
+    def is_stream_valid(self, name: Union[int, str] = 0) -> bool:
         """
         Check if stream called name is valid.
 
         Args:
-            name: ethier int or string
+            name: either int or string
 
         Returns:
             True or False
@@ -99,12 +159,12 @@ class Simulation():
         return True
     
     
-    def IsOperationValid(self, name) -> bool:
+    def is_operation_valid(self, name: Union[int, str] = 0) -> bool:
         """
         Check if unit operation called name is valid.
 
         Args:
-            name: ethier int or string
+            name: either int or string
 
         Returns:
             True or False
@@ -117,7 +177,7 @@ class Simulation():
         return True
     
     
-    def Normalize_values(self, data):
+    def normalize_values(self, data: list):
         """
         Normalizes a list of values
 
@@ -134,13 +194,16 @@ class Simulation():
         return [x / total_sum for x in data]
     
     
-    def OperationClass(self, name:Union[int, str]) -> str:
+    def operating_class(self, name: Union[int, str]) -> str:
         return self.Operations(name).ClassificationName
     
 
-    def ListAllStreams(self):
+    def list_all_streams(self):
+        """
+        Lists all the streams in current simulation case.
+        """
         if self.Streams.Count > 0:
-            print(f'List of Streams in {self.HyCase.name} is:')
+            print(f'List of Streams in {self.hysys_case.name} is:')
             for i in range(self.Streams.Count):
                 stream = self.Streams(i)
                 AttOps = []
@@ -154,13 +217,16 @@ class Simulation():
             print('No streams in current simulation case.')
 
 
-    def ListAllOperations(self):
+    def list_all_operations(self):
+        """
+        Lists all the unit operations, including logic op, in current simulation case.
+        """
         if self.Operations.Count > 0:
-            print(f'List of Unit Operations in {self.HyCase.name} is:')
+            print(f'List of Unit Operations in {self.hysys_case.name} is:')
             for i in range(self.Operations.Count):
                 print(f'{i}: {self.Operations(i).name} with operation class of "{self.Operations(i).ClassificationName}"')
         else:
-            print('No unit operation in current simualtion case.')
+            print('No unit operation in current simulation case.')
     
 
 ########################################################################################################################
@@ -169,62 +235,75 @@ class Simulation():
     
 ########################################################################################################################
 
-    def Stream_SetVapourFraction(self, name:Union[int, str], value:float) -> bool:
-        return self.Stream_SetValue(name, self.Streams(name).VapourFration, 'Vapour Fraction', value)
+    def stream_set_vapour_fraction(self, name: Union[int, str], value: float) -> bool:
+        return self.stream_set_value(name, self.Streams(name).VapourFration, 'Vapour Fraction', value)
     
 
-    def Stream_SetTemperature(self, name:Union[int, str], value:float, unit:str = 'C') -> bool:
-        if unit not in self.HyApp.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctTemperature).Names:
+    def stream_set_temperature(self, name: Union[int, str], value: float, unit: str = 'C') -> bool:
+        if unit not in self.hysys_app.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctTemperature).Names:
             print('Error: Wrong unit')
             return False
         
-        return self.Stream_SetValue(name, self.Streams(name).Temperature, 'Temperature', value, unit)
+        return self.stream_set_value(name, self.Streams(name).Temperature, 'Temperature', value, unit)
     
 
-    def Stream_SetPressure(self, name:Union[int, str], value:float, unit:str = 'kPa') -> bool:
-        if unit not in self.HyApp.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctPressure).Names:
+    def stream_set_pressure(self, name: Union[int, str], value: float, unit: str = 'kPa') -> bool:
+        if unit not in self.hysys_app.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctPressure).Names:
             print('Error: Wrong unit')
             return False
         
-        return self.Stream_SetValue(name, self.Streams(name).Pressure, 'Pressure', value, unit)
+        return self.stream_set_value(name, self.Streams(name).Pressure, 'Pressure', value, unit)
     
 
-    def Stream_SetMolarFlow(self, name:Union[int, str], value:float, unit:str = 'kgmole/h') -> bool:
-        if unit not in self.HyApp.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctMolarFlow).Names:
+    def stream_set_molar_flow(self, name: Union[int, str], value: float, unit: str = 'kgmole/h') -> bool:
+        if unit not in self.hysys_app.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctMolarFlow).Names:
             print('Error: Wrong unit')
             return False
         
-        return self.Stream_SetValue(name, self.Streams(name).MolarFlow, 'Molar flow', value, unit)
+        return self.stream_set_value(name, self.Streams(name).MolarFlow, 'Molar flow', value, unit)
     
 
-    def Stream_SetMassFlow(self, name:Union[int, str], value:float, unit:str = 'kgmole/h') -> bool:
-        if unit not in self.HyApp.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctMassFlow).Names:
+    def stream_set_mass_flow(self, name: Union[int, str], value: float, unit: str = 'kg/h') -> bool:
+        if unit not in self.hysys_app.UnitConversionSetManager.GetUnitConversionSet(hytlb.constants.uctMassFlow).Names:
             print('Error: Wrong unit')
             return False
         
-        return self.Stream_SetValue(name, self.Streams(name).MassFlow, 'Mass flow', value, unit)
+        return self.stream_set_value(name, self.Streams(name).MassFlow, 'Mass flow', value, unit)
     
     
-    def Stream_SetValue(self, name:Union[int, str], varibale:object, varName:str, value:float, unit:str = "") -> bool:
-        if not self.IsStreamValid(name):
+    def stream_set_value(self, name: Union[int, str], var_obj:object, var_name: str, value: float, unit: str = "") -> bool:
+        """
+        set value of variable of stream.
+
+        Args:
+            name: name of stream to be set value
+            var_obj: the variable to be set
+            var_name: variable's name for displaying message
+            value: value to set
+            unit: unit of measurement
+
+        Returns:
+            status of setting
+        """
+        # Check if stream name is correct
+        if not self.is_stream_valid(name):
             print(f'Error: No stream {name}.')
             return False
         
-        if not varibale.CanModify:
-            print(f'Error: {varName} of {name} cannot be modified.')
+        # Check if variable can be modified
+        if not var_obj.CanModify:
+            print(f'Error: {var_name} of {name} cannot be modified.')
             return False
         
-        # Turn off the solving mode
-        self.Solver.CanSolve = False
+        self.turn_off_solver()
 
         # Set stream parameter
-        varibale.SetValue(value, unit)
+        var_obj.SetValue(value, unit)
 
-        # Turn on the solving made
-        self.Solver.CanSolve = True
+        self.turn_on_solver()
 
         # wait for solver to run
-        while self.Solver.IsSolving == True:
+        while self.is_solver_running():
             time.sleep(0.001)
 
         return True
