@@ -12,7 +12,6 @@ This module contains interface of Aspen HYSYS V14.
 HYSYS Interface Class
 ---------------------
 
-
 """
 
 import os
@@ -37,8 +36,6 @@ class simulation:
     """
 
     hysys_app = win32.gencache.EnsureDispatch('HYSYS.Application')
-    hysys_case = None
-    component_list = []
 
     def __init__(self, filename: str = None, working_path: str = None, visibility: bool = True):
         print('The current Directory is : ')
@@ -79,6 +76,8 @@ class simulation:
         # set simulation case visibility, default is True
         self.hysys_case.Visible = visibility
 
+        self.component_list = []
+
         # get the fluid package and components list
         for i in range(self.hysys_case.BasisManager.FluidPackages.Count):
             # add each detail of fluid package
@@ -88,28 +87,20 @@ class simulation:
         
         # end of __init__
         return
-
-
-    def close_case(self) -> bool:
-        activeCase = self.hysys_app.ActiveDocument
-        activeCase.Close(False)
-        return True
     
     @property
     def Solver(self):
         return self.hysys_case.Solver
     
-    
     @property
     def Operations(self):
         return self.hysys_case.Flowsheet.Operations
-    
     
     @property
     def Streams(self):
         return self.hysys_case.Flowsheet.Streams
     
-    
+
     def Components(self, name: Union[int, str] = 0):
         return self.hysys_case.BasisManager.FluidPackages.Item(name).Components
     
@@ -119,7 +110,13 @@ class simulation:
 #   Utility functions   
     
 ########################################################################################################################
+
+    def close_case(self) -> bool:
+        activeCase = self.hysys_app.ActiveDocument
+        activeCase.Close(False)
+        return True
     
+
     def turn_off_solver(self):
         """turn off the solving mode"""
         self.Solver.CanSolve = False
@@ -141,6 +138,7 @@ class simulation:
         """
         self.hysys_case.Save()
 
+
     def is_stream_valid(self, name: Union[int, str] = 0) -> bool:
         """
         Check if stream called name is valid.
@@ -154,6 +152,7 @@ class simulation:
         try:
             self.Streams.Item(name)
         except com_error as e:
+            print(f'Stream : {name} is not valid.')
             return False
         
         return True
@@ -172,6 +171,7 @@ class simulation:
         try:
             self.Operations.Item(name)
         except com_error as e:
+            print(f'Operation : {name} is not valid.')
             return False
         
         return True
@@ -187,10 +187,13 @@ class simulation:
         Returns:
             A new list with the normalized values.
         """
+        # determine the total summation of list data
         total_sum = sum(data)
+
         if total_sum == 0:
             # Handle the case where the sum of all elements is zero
             return [0.0] * len(data)
+        
         return [x / total_sum for x in data]
     
     
@@ -296,10 +299,7 @@ class simulation:
             return False
         
         self.turn_off_solver()
-
-        # Set stream parameter
         var_obj.SetValue(value, unit)
-
         self.turn_on_solver()
 
         # wait for solver to run
@@ -307,7 +307,7 @@ class simulation:
             time.sleep(0.001)
 
         return True
-    
+
 
 ########################################################################################################################
 

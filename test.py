@@ -3,5 +3,8 @@ from cosmo import *
 sim = hysys_simulation.simulation(filename='Test_1')
 
 if sim:
-    sim.stream_set_pressure('C12', 150.0, 'kPa')
-    print(sim.component_list)
+    component_list = sim.component_list
+    for cl in component_list:
+        print(cl["fluid package"])
+        print(cl["property package"])
+        print(cl["components"])
