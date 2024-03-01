@@ -16,6 +16,7 @@ import typing
 from typing import Any
 import matplotlib.pyplot as plt
 import csv
+import numpy as np
 
 class Min_Utility_Problem:
     """
@@ -333,6 +334,15 @@ class Min_Utility_Problem:
             left_hot_h.append(self.cold_composite_h[0])
             left_hot_t.append(self.hot_composite_t[i - 1] + (self.cold_composite_h[0] - self.hot_composite_h[i - 1]) * m)
         
+        right_hot_h = []
+        
+        if left_hot_h_index == 0:
+            right_cold_h = self.hot_composite_h
+        else:
+            right_hot_h.append(left_hot_h[-1])
+            for r in self.hot_composite_h[left_hot_h_index:]:
+                right_hot_h.append(r)
+
         right_cold_h = []
         right_cold_t = []
         if right_cold_h_index == len(self.cold_composite_h) - 1:
@@ -348,11 +358,26 @@ class Min_Utility_Problem:
             right_cold_h.append(self.hot_composite_h[-1])
             right_cold_t.append(self.cold_composite_t[i] + (self.hot_composite_h[-1] - self.cold_composite_h[i]) * m)
 
-        max_cold_h = max(self.cold_composite_h)
-        #plt.fill_between([0, self.demanded_cold_utility], 0, self.temperatures[0], color = 'b', alpha = 0.5)
+        right_cold_h.reverse()
+        right_cold_t.reverse()
+
+        left_cold_h = []
+        for l in self.cold_composite_h[:right_cold_h_index]:
+            left_cold_h.append(l)
+        if right_cold_h_index < len(self.cold_composite_h) - 1:
+            left_cold_h.append(right_cold_h[0])
+
+        combined_h = sorted(list(set(right_hot_h) | set(left_cold_h)))
+        hot_t = np.interp(combined_h, self.hot_composite_h, self.hot_composite_t)
+        cold_t = np.interp(combined_h, self.cold_composite_h, self.cold_composite_t)
+
+        plt.fill_between(combined_h, hot_t, cold_t, color = 'g', alpha = 0.3)
         plt.fill_between(left_hot_h, 0, left_hot_t, color = 'b', alpha = 0.5)
-        #plt.fill_between([max_cold_h - self.demanded_hot_utility, max_cold_h], 0, self.temperatures[0], color = 'r', alpha = 0.5)
         plt.fill_between(right_cold_h, 0, right_cold_t, color = 'r', alpha = 0.5)
+
+        #max_cold_h = max(self.cold_composite_h)
+        #plt.fill_between([0, self.demanded_cold_utility], 0, self.temperatures[0], color = 'b', alpha = 0.5)
+        #plt.fill_between([max_cold_h - self.demanded_hot_utility, max_cold_h], 0, self.temperatures[0], color = 'r', alpha = 0.5)
 
         try:
             pinch_index = self.cold_composite_t.index(self.pinch_temperature)
