@@ -1,3 +1,21 @@
+"""
+Modified by Maetee L.
+On: 2024
+Contact: may3rd@gmail.com
+
+Modification Notes:
+
+Minimum_Utility_Problem
+- add parameter for hot stream and cold stream heat exchange permit.
+- add calculation and plotting for composite diagram and grand composite curve.
+- add change_DTmin.
+- add generate_from_csv and generate_from_file to be able to read heat exchange 
+  permit.
+
+Solvers
+- add model in return result from transport and transshipment solvers.
+"""
+
 from .lib.classes.minimum_utility_problem import Min_Utility_Problem
 from .lib.classes.network import Network
 from .lib.classes.process_stream import Process_Stream
