@@ -4,6 +4,7 @@ from lib.classes.network import Network
 from lib.solvers.min_utility_solver import solve_min_utility_instance
 from lib.solvers.transshipment_solver import solve_transshipment_model, solve_transshipment_model_greedy
 from lib.solvers.transport_solver import solve_transport_model, solve_transport_model_greedy
+import os
 
 def display_matches_transshipment(network, model):
     print('------- Matching Streams ------')
@@ -39,7 +40,12 @@ if __name__ == '__main__':
     problems += ["8sp-fs1", "8sp1", "9sp-al1", "9sp-has1", "10sp-la1", "10sp-ol1", "10sp1", "12sp1", "14sp1", "15sp-tkm"] 
     # problems += ["20sp1", "22sp-ph", "22sp1", "23sp1", "28sp-as1", "37sp-yfyv"]
 
-    minup_test: Min_Utility_Problem = Min_Utility_Problem.generate_from_csv('test.csv')
+    filename = 'test.csv'
+    minup_test: Min_Utility_Problem = Min_Utility_Problem.generate_from_csv(os.path.join(os.getcwd(), filename))
+
+    minup_test.plot_composite_diagram()
+    exit()
+
     (sigma_HU, delta_HU) = solve_min_utility_instance(minup_test, debug=False)
     network = Network(minup_test, sigma_HU, delta_HU)
     (result, model) = solve_transshipment_model(network)
