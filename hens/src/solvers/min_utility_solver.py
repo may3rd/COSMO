@@ -8,10 +8,10 @@ def solve_min_utility_instance(problem_instance, debug: bool = False):
     model = ConcreteModel(name="MIN_UTILITY")  # declaring concrete model
 
     # declaring model inputs
-    HS = problem_instance.HS
-    CS = problem_instance.CS
-    HU = problem_instance.HU
-    CU = problem_instance.CU
+    HS = problem_instance.hot_streams
+    CS = problem_instance.cold_streams
+    HU = problem_instance.hot_utilities
+    CU = problem_instance.cold_utilities
     TI = problem_instance.intervals
     sigma_HS = problem_instance.sigmas
     delta_CS = problem_instance.deltas

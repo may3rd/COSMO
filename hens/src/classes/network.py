@@ -23,8 +23,8 @@ class Network:
                  min_utility_instance: MinUtilityProblem,
                  utility_sigmas: dict[tuple[Stream, TemperatureInterval], float],
                  utility_deltas: dict[tuple[Stream, TemperatureInterval], float]) -> None:
-        self.H: list[Stream] = min_utility_instance.HS + min_utility_instance.HU
-        self.C: list[Stream] = min_utility_instance.CS + min_utility_instance.CU
+        self.H: list[Stream] = min_utility_instance.hot_streams + min_utility_instance.hot_utilities
+        self.C: list[Stream] = min_utility_instance.cold_streams + min_utility_instance.cold_utilities
         self.T: list[TemperatureInterval] = min_utility_instance.intervals
         self.P = min_utility_instance.accepted_h_c
         self.sigmas: dict[tuple[Stream, TemperatureInterval], float] = min_utility_instance.sigmas

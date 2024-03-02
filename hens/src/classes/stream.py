@@ -8,11 +8,13 @@ from .processstream import ProcessStream
 
 class Stream(ProcessStream):
 
-    def __init__(self):
-        ProcessStream.__init__(self)
-        pass
-
-    def __init__(self, name: str, t_in: float, t_out: float, f_cp: float) -> None:
-        ProcessStream.__init__(self, name, t_in, t_out)
+    def __init__(self, name: str = '', t_in: float = 0.0, t_out: float = 0.0, f_cp: float = 0.0) -> None:
+        super().__init__(name, t_in, t_out)
         self.FCp: float = f_cp
         self.heat: float = abs((t_out - t_in) * f_cp)
+
+    def __str__(self) -> str:
+        return f'{self.name} {self.t_in} {self.t_out} {self.heat}'
+
+    def __repr__(self) -> str:
+        return str(self)

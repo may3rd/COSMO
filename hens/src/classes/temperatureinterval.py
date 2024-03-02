@@ -7,18 +7,13 @@ from typing import Any
 
 class TemperatureInterval:
 
-    def __init__(self) -> None:
-        self.Tmax: float = 0
-        self.Tmin: float = 0
-        self.DT: float = 0
-
-    def __init__(self, T1: float, T2: float) -> None:
-        self.Tmax: float = max(T1, T2)
-        self.Tmin: float = min(T1, T2)
-        self.DT: float = self.Tmax - self.Tmin
+    def __init__(self, T1: float = 0, T2: float = 0) -> None:
+        self.t_max: float = max(T1, T2)
+        self.t_min: float = min(T1, T2)
+        self.diff_temp: float = self.t_max - self.t_min
 
     def __str__(self) -> str:
-        return "[{}, {}]".format(self.Tmax, self.Tmin)
+        return "[{}, {}]".format(self.t_max, self.t_min)
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -31,25 +26,25 @@ class TemperatureInterval:
         Returns True if it does.
         """
         # self interval is to the left of other interval
-        if self.Tmin >= other.Tmax:
+        if self.t_min >= other.t_max:
             return False
         
         # self interval is to the right of other interval
-        if self.Tmax <= other.Tmin:
+        if self.t_max <= other.t_min:
             return False
 
         # otherwise it is contained
         return True
 
     def shifted(self, shift) -> Any:
-        return TemperatureInterval(self.Tmax + shift, self.Tmin + shift)
+        return TemperatureInterval(self.t_max + shift, self.t_min + shift)
 
     @staticmethod
     def common_interval(interval_1, interval_2) -> Any:
 
         assert interval_1.passes_through_interval(interval_2), "Intervals do not have common ground."
 
-        t_max = min(interval_1.Tmax, interval_2.Tmax)
-        t_min = max(interval_1.Tmin, interval_2.Tmin)
+        t_max = min(interval_1.t_max, interval_2.t_max)
+        t_min = max(interval_1.t_min, interval_2.t_min)
 
         return TemperatureInterval(t_max, t_min)

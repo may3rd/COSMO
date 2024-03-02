@@ -27,10 +27,10 @@ class MinUtilityProblem:
     """
 
     def __init__(self, streams: list[Stream], utilities: list[Utility], diff_t_min: float) -> None:
-        self.HS: list[Stream] = []
-        self.CS: list[Stream] = []
-        self.HU: list[Utility] = []
-        self.CU: list[Utility] = []
+        self.hot_streams: list[Stream] = []
+        self.cold_streams: list[Stream] = []
+        self.hot_utilities: list[Utility] = []
+        self.cold_utilities: list[Utility] = []
         self.temperatures: list[float] = []
         self.intervals: list[TemperatureInterval] = []
         self.sigmas: typing.Dict[(Any, Any), float] = {}
@@ -42,6 +42,9 @@ class MinUtilityProblem:
         # ---------------------------------------------------------
         # appended by Maetee to display composite curve
         # ---------------------------------------------------------
+        # heat exchanger match between hot stream h and cold stream c is permitted
+        self.accepted_h_c: dict[(Stream, Stream), int] = {}
+        # properties for determination of pinch temperature and composite diagram
         self.problem_table: dict[TemperatureInterval, float] = {}
         self.hot_composite_h: list[float] = []
         self.hot_composite_t: list[float] = []
@@ -51,12 +54,9 @@ class MinUtilityProblem:
         self.grand_composite_t: list[float] = []
         self.unfeasible_heat_cascade = []
         self.heat_cascade = []
-        self.demanded_hot_utility: float = 0.0
-        self.demanded_cold_utility: float = 0.0
-        self.pinch_temperature: float = 0.0
-
-        # heat exchanger match between hot stream h and cold stream c is permitted
-        self.accepted_h_c: dict[(Stream, Stream), bool] = {}
+        self.demanded_hot_utility: float = 0
+        self.demanded_cold_utility: float = 0
+        self.pinch_temperature: float = 0
         # ---------------------------------------------------------
         # Original methods
         # ---------------------------------------------------------
@@ -66,7 +66,7 @@ class MinUtilityProblem:
         self.__init_heats()
         self.__init_accepted_u_intervals()
         # ---------------------------------------------------------
-        # Maetee customize methods
+        # Additional method
         # ---------------------------------------------------------
         self.__init_accepted_h_c()
         self.__init_heat_cascade()
@@ -81,9 +81,9 @@ class MinUtilityProblem:
         """
         for stream in streams:
             if stream.is_hot:
-                self.HS.append(stream)
+                self.hot_streams.append(stream)
             else:
-                self.CS.append(stream)
+                self.cold_streams.append(stream)
 
     def __init_utilities(self, utilities: list[Utility]) -> None:
         """
@@ -93,9 +93,9 @@ class MinUtilityProblem:
         """
         for utility in utilities:
             if utility.is_hot:
-                self.HU.append(utility)
+                self.hot_utilities.append(utility)
             else:
-                self.CU.append(utility)
+                self.cold_utilities.append(utility)
 
     def __init_temperatures(self, streams: list[Stream], utilities: list[Utility]) -> None:
         """
@@ -104,7 +104,7 @@ class MinUtilityProblem:
         """
         process_streams: list[Stream] = streams + utilities
         for process_stream in process_streams:
-            t_in = process_stream.Tin
+            t_in = process_stream.t_in
             if not process_stream.is_hot:
                 t_in += self.diff_t_min
             if t_in not in self.temperatures:
@@ -122,10 +122,10 @@ class MinUtilityProblem:
             total_h_interval: float = 0.0
 
             # initializing sigmas
-            for hot_stream in self.HS:
+            for hot_stream in self.hot_streams:
                 if hot_stream.interval.passes_through_interval(interval):
                     self.sigmas[(hot_stream, interval)] = (
-                            TemperatureInterval.common_interval(interval, hot_stream.interval).DT * hot_stream.FCp)
+                            TemperatureInterval.common_interval(interval, hot_stream.interval).diff_temp * hot_stream.FCp)
                 else:
                     self.sigmas[(hot_stream, interval)] = 0
 
@@ -133,11 +133,11 @@ class MinUtilityProblem:
 
             # initializing deltas. This one is tricky because intervals were constructed 
             # by adding minimum diff temp to each CS interval, but CS intervals were nos modified
-            for cold_stream in self.CS:
+            for cold_stream in self.cold_streams:
                 if cold_stream.interval.shifted(self.diff_t_min).passes_through_interval(interval):
                     self.deltas[(cold_stream, interval)] = (
                             TemperatureInterval.common_interval(interval,
-                                                                cold_stream.interval.shifted(self.diff_t_min)).DT *
+                                                                cold_stream.interval.shifted(self.diff_t_min)).diff_temp *
                             cold_stream.FCp)
                 else:
                     self.deltas[(cold_stream, interval)] = 0
@@ -151,32 +151,32 @@ class MinUtilityProblem:
         for interval in self.intervals:
 
             # accepted sigmas
-            for hot_utility in self.HU:
+            for hot_utility in self.hot_utilities:
                 if hot_utility.interval.passes_through_interval(interval):
                     self.accepted_hu_sigmas[(hot_utility, interval)] = True
                 else:
                     self.accepted_hu_sigmas[(hot_utility, interval)] = False
 
             # accepted deltas
-            for cold_utility in self.CU:
+            for cold_utility in self.cold_utilities:
                 if cold_utility.interval.shifted(self.diff_t_min).passes_through_interval(interval):
                     self.accepted_cu_deltas[(cold_utility, interval)] = True
                 else:
                     self.accepted_cu_deltas[(cold_utility, interval)] = False
 
     def __init_accepted_h_c(self):
-        for hot_stream in self.HS + self.HU:
-            for cold_stream in self.CS + self.CU:
-                self.accepted_h_c[(hot_stream, cold_stream)] = True
+        for hot_stream in self.hot_streams + self.hot_utilities:
+            for cold_stream in self.cold_streams + self.cold_utilities:
+                self.accepted_h_c[(hot_stream, cold_stream)] = 1
 
         # not transfer hot utility to cold utility
-        for H in self.HU:
-            for C in self.CU:
-                self.accepted_h_c[(H, C)] = False
+        for H in self.hot_utilities:
+            for C in self.cold_utilities:
+                self.accepted_h_c[(H, C)] = 0
 
     def __init_heat_cascade(self) -> None:
-        exit_h = 0.0
-        lowest_exit_h = 0.0
+        exit_h = 0
+        lowest_exit_h = 0
 
         i: int = 0
         pinch_interval: int = i
@@ -206,7 +206,7 @@ class MinUtilityProblem:
             self.heat_cascade.append(row)
 
         self.demanded_cold_utility = exit_h
-        self.pinch_temperature = self.intervals[pinch_interval].Tmin
+        self.pinch_temperature = self.intervals[pinch_interval].t_min
 
         return
 
@@ -219,18 +219,18 @@ class MinUtilityProblem:
         # find enthalpies change for hot and cold composite streams
         for interval in self.intervals[::-1]:
             total_h = 0.0
-            for H in self.HS:
+            for H in self.hot_streams:
                 total_h += self.sigmas[(H, interval)]
 
             delta_h_hot.append(total_h)
 
             total_h = 0.0
-            for C in self.CS:
+            for C in self.cold_streams:
                 total_h += self.deltas[(C, interval)]
 
             delta_h_cold.append(total_h)
 
-        total_h_hot = 0.0
+        total_h_hot = 0
         self.hot_composite_h.append(total_h_hot)
         self.hot_composite_t.append(temperatures[0])
         for i in range(1, len(temperatures)):
@@ -264,26 +264,26 @@ class MinUtilityProblem:
         self.diff_t_min = diff_t_min
 
         # clear all related parameters
-        self.temperatures: list[float] = []
-        self.intervals: list[TemperatureInterval] = []
-        self.sigmas: typing.Dict[(Any, Any), float] = {}
-        self.deltas: typing.Dict[(Any, Any), float] = {}
-        self.accepted_hu_sigmas: typing.Dict[(Any, Any), bool] = {}
-        self.accepted_cu_deltas: typing.Dict[(Any, Any), bool] = {}
-        self.problem_table: dict[TemperatureInterval, float] = {}
-        self.hot_composite_h: list[float] = []
-        self.hot_composite_t: list[float] = []
-        self.cold_composite_h: list[float] = []
-        self.cold_composite_t: list[float] = []
-        self.grand_composite_h: list[float] = []
-        self.grand_composite_t: list[float] = []
+        self.temperatures = []
+        self.intervals = []
+        self.sigmas = {}
+        self.deltas = {}
+        self.accepted_hu_sigmas = {}
+        self.accepted_cu_deltas = {}
+        self.problem_table = {}
+        self.hot_composite_h = []
+        self.hot_composite_t = []
+        self.cold_composite_h = []
+        self.cold_composite_t = []
+        self.grand_composite_h = []
+        self.grand_composite_t = []
         self.unfeasible_heat_cascade = []
         self.heat_cascade = []
-        self.demanded_hot_utility: float = 0.0
-        self.demanded_cold_utility: float = 0.0
-        self.pinch_temperature: float = 0.0
+        self.demanded_hot_utility = 0
+        self.demanded_cold_utility = 0
+        self.pinch_temperature = 0
 
-        self.__init_temperatures(self.HS + self.CS, self.HU + self.CU)
+        self.__init_temperatures(self.hot_streams + self.cold_streams, self.hot_utilities + self.cold_utilities)
         self.__init_heats()
         self.__init_accepted_u_intervals()
         self.__init_heat_cascade()
@@ -297,10 +297,18 @@ class MinUtilityProblem:
         plt.plot(self.hot_composite_h, self.hot_composite_t, 'ro')
         plt.plot(self.cold_composite_h, self.cold_composite_t, 'bo')
 
-        # find left point of hot composite curve
         left_hot_h_index = 0
         right_cold_h_index = 0
 
+        # initialize list
+        left_hot_h = []
+        left_hot_t = []
+        left_cold_h = []
+        right_hot_h = []
+        right_cold_h = []
+        right_cold_t = []
+
+        # find left point of hot composite curve
         for i in range(len(self.hot_composite_h)):
             if self.hot_composite_h[i] >= self.cold_composite_h[0]:
                 left_hot_h_index = i
@@ -313,13 +321,6 @@ class MinUtilityProblem:
                 break
 
         # calculate temperature according it left and right points
-        left_hot_h = []
-        left_hot_t = []
-        left_cold_h = []
-        right_hot_h = []
-        right_cold_h = []
-        right_cold_t = []
-
         if left_hot_h_index == 0:
             left_hot_h.append(self.hot_composite_h[0])
             left_hot_t.append(self.hot_composite_t[0])
@@ -356,6 +357,7 @@ class MinUtilityProblem:
             right_cold_h.append(self.hot_composite_h[-1])
             right_cold_t.append(self.cold_composite_t[i] + (self.hot_composite_h[-1] - self.cold_composite_h[i]) * m)
 
+        # correct order of right_cold_h and right_cold_t
         right_cold_h.reverse()
         right_cold_t.reverse()
 
@@ -382,7 +384,7 @@ class MinUtilityProblem:
 
         plt.grid(True)
         plt.title('Temperature-Enthalpy Composite Diagram')
-        plt.xlabel('Enthalpy H')
+        plt.xlabel('Enthalpy')
         plt.ylabel('Temperature')
 
         if save:
@@ -417,8 +419,8 @@ class MinUtilityProblem:
 
     def __str__(self) -> str:
         return "HS: {} \nCS: {}\nHU: {}\nCU: {}\nDT: {}".format(
-            len(self.HS), len(self.CS),
-            len(self.HU), len(self.CU),
+            len(self.hot_streams), len(self.cold_streams),
+            len(self.hot_utilities), len(self.cold_utilities),
             self.diff_t_min)
 
     def __repr__(self) -> str:
@@ -434,13 +436,13 @@ class MinUtilityProblem:
         print(f'Demanded Cold Utility is {self.demanded_cold_utility:.2f}')
 
     def get_hot_stream(self, name: str) -> Union[Stream, None]:
-        for h in self.HS:
+        for h in self.hot_streams:
             if h.name == name:
                 return h
         return None
 
     def get_cold_stream(self, name: str) -> Union[Stream, None]:
-        for c in self.CS:
+        for c in self.cold_streams:
             if c.name == name:
                 return c
         return None
@@ -495,7 +497,7 @@ class MinUtilityProblem:
                     for e in elements_permit:
                         hot_stream = return_obj.get_hot_stream(e[0])
                         cold_stream = return_obj.get_cold_stream(e[1])
-                        return_obj.accepted_h_c[(hot_stream, cold_stream)] = int(e[2]) == 1
+                        return_obj.accepted_h_c[(hot_stream, cold_stream)] = int(e[2])
             return return_obj
 
         return None
