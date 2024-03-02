@@ -1,7 +1,7 @@
 # This file tests the implementation of the classes
 from lib.classes.stream import Stream
 from lib.classes.utility import Utility
-from lib.classes.minimum_utility_problem import Min_Utility_Problem
+from lib.classes.minimum_utility_problem import MinUtilityProblem
 from lib.solvers.min_utility_solver import solve_min_utility_instance
 from lib.solvers.transshipment_solver import solve_transshipment_model
 from lib.solvers.transport_solver import solve_transport_model
@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     for problem in problems:
         print("-----------------------------------{}-----------------------------------".format(problem))
-        minup = Min_Utility_Problem.generate_from_data(problem)
+        minup = MinUtilityProblem.generate_from_data(problem)
         (sigma_HU, delta_HU) = solve_min_utility_instance(minup)
         network = Network(minup, sigma_HU, delta_HU)
         solve_transshipment_model(network)

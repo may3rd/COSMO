@@ -1,5 +1,5 @@
 # This file tests the implementation of the classes
-from lib.classes.minimum_utility_problem import Min_Utility_Problem
+from lib.classes.minimum_utility_problem import MinUtilityProblem
 from lib.classes.network import Network
 from lib.solvers.min_utility_solver import solve_min_utility_instance
 from lib.solvers.transshipment_solver import solve_transshipment_model, solve_transshipment_model_greedy
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     # problems += ["20sp1", "22sp-ph", "22sp1", "23sp1", "28sp-as1", "37sp-yfyv"]
 
     filename = 'test.csv'
-    minup_test: Min_Utility_Problem = Min_Utility_Problem.generate_from_csv(os.path.join(os.getcwd(), filename))
+    minup_test: MinUtilityProblem = MinUtilityProblem.generate_from_csv(os.path.join(os.getcwd(), filename))
 
     minup_test.plot_composite_diagram()
     exit()

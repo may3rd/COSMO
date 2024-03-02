@@ -3,11 +3,11 @@
 # 1. An inlet temperature Tin
 # 2. An outlet temperature Tout
 # 3. A unitary cost per unit of heat
-from .process_stream import Process_Stream
-
-class Utility(Process_Stream):
+from .processstream import ProcessStream
 
 
-    def __init__(self, name: str, Tin: float, Tout: float, cost: float) -> None:
-        Process_Stream.__init__(self, name, Tin, Tout)
+class Utility(ProcessStream):
+
+    def __init__(self, name: str, t_in: float, t_out: float, cost: float) -> None:
+        ProcessStream.__init__(self, name, t_in, t_out)
         self.cost: float = cost

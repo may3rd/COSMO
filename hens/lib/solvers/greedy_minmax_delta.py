@@ -11,18 +11,19 @@ chooses a match that minimizes max(hi - qmax, ci - qmax).
 """
 import sys
 from time import time
-from .greedy_max_heat import greedy_heat, greedy_heat_2
+from .greedy_max_heat import greedy_heat_2
 from ..classes.network import Network
 from ..classes.stream import Stream
-from ..classes.temperature_interval import Temperature_Interval
+from ..classes.temperatureinterval import TemperatureInterval
+
 
 def greedy_min_delta(network: Network) -> None:
     
     H: list[Stream] = network.H
     C: list[Stream] = network.C
-    T: list[Temperature_Interval] = network.T
-    sigma: dict[Stream, dict[Temperature_Interval, float]] = network.sigmas
-    delta: dict[Stream, dict[Temperature_Interval, float]] = network.deltas
+    T: list[TemperatureInterval] = network.T
+    sigma: dict[tuple[Stream, TemperatureInterval], float] = network.sigmas
+    delta: dict[tuple[Stream, TemperatureInterval], float] = network.deltas
     heats: dict[Stream, float] = network.heats
     demands: dict[Stream, float] = network.demands
 
@@ -45,10 +46,10 @@ def greedy_min_delta(network: Network) -> None:
         #     break
 
         matched_heat: float = 0
-        matched_h: Stream = None
-        matched_c: Stream = None
+        matched_h: Stream = Stream()
+        matched_c: Stream = Stream()
         min_delta: float = float(sys.maxint)
-        matched_q: dict[Stream, dict[Temperature_Interval, dict[Stream, dict[Temperature_Interval, float]]]] = {}
+        matched_q: dict[tuple[Stream, TemperatureInterval, Stream, TemperatureInterval], float] = {}
 
         for h in H:
             for c in C:

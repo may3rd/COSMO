@@ -1,7 +1,7 @@
 from hens import *
 
 filename = r'C:\Users\may3r\OneDrive\Documents\GitHub\COSMO\hens\test.csv'
-minup: Min_Utility_Problem = Min_Utility_Problem.generate_from_csv(filename)
+minup: MinUtilityProblem = MinUtilityProblem.generate_from_csv(filename)
 
 #print(minup)
 
