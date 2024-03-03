@@ -1,9 +1,10 @@
 # Minimization of Matches Solver via Transshipment Model
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, Binary
 from time import time
+from hens import Network
 
 
-def solve_transshipment_model(network):
+def solve_transshipment_model(network: Network):
 
     # declaring model
     model = ConcreteModel(name="MIN_MATCHES_TRANSSHIPMENT")
@@ -69,7 +70,7 @@ def solve_transshipment_model(network):
     return results, model
 
 
-def solve_transshipment_model_greedy(network):
+def solve_transshipment_model_greedy(network: Network):
 
     # declaring model
     model = ConcreteModel(name="MIN_MATCHES_TRANSSHIPMENT_GREEDY")
@@ -132,3 +133,18 @@ def solve_transshipment_model_greedy(network):
     print("HS: {}, CS: {}, TI: {}".format(len(H), len(C), len(T)))
     print("Objective: y = {}, in {} seconds".format(sum(y), round(time() - s_time, 6)))
     return results, model
+
+
+def print_matches_transshipment(network: Network, model: ConcreteModel):
+    print('------- Matching Streams ------')
+    for h in network.H:
+        for c in network.C:
+            if model.y[h, c].value != 0:
+                print(f'{h.name} with {c.name}', end="")
+                total_h = 0.0
+                for t in network.T:
+                    if model.q[h, c, t].value > 0.0:
+                        # print(f'  {t} - {model.q[h, c, t].value:.2f}')
+                        total_h += model.q[h, c, t].value
+                        pass
+                print(f' - q = {total_h:.2f}')

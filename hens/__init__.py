@@ -26,7 +26,9 @@ from .src.solvers.greedy_max_heat import greedy_heat, greedy_heat_2
 from .src.solvers.greedy_minmax_delta import greedy_min_delta
 from .src.solvers.min_utility_solver import solve_min_utility_instance
 from .src.solvers.transport_solver import solve_transport_model, solve_transport_model_greedy
+from .src.solvers.transshipment_solver import print_matches_transshipment
 from .src.solvers.transshipment_solver import solve_transshipment_model, solve_transshipment_model_greedy
+from .src.solvers.transport_solver import print_matches_transport
 
 __all__ = ['MinUtilityProblem',
            'Network',
@@ -37,5 +39,5 @@ __all__ = ['MinUtilityProblem',
            'greedy_heat', 'greedy_heat_2',
            'greedy_min_delta',
            'solve_min_utility_instance',
-           'solve_transport_model', 'solve_transport_model_greedy',
-           'solve_transshipment_model', 'solve_transshipment_model_greedy']
+           'solve_transport_model', 'solve_transport_model_greedy', 'print_matches_transshipment',
+           'solve_transshipment_model', 'solve_transshipment_model_greedy', 'print_matches_transport']

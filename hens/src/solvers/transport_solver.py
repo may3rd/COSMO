@@ -1,9 +1,9 @@
 # Minimization of Matches Solver via Transport Model
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, Binary
 from time import time
+from hens import Network
 
-
-def solve_transport_model(network):
+def solve_transport_model(network: Network):
 
     # declaring model
     model = ConcreteModel(name="MIN_MATCHES_TRANSPORT")
@@ -64,7 +64,7 @@ def solve_transport_model(network):
     return results, model
 
 
-def solve_transport_model_greedy(network):
+def solve_transport_model_greedy(network: Network):
 
     # declaring model
     model = ConcreteModel(name="MIN_MATCHES_TRANSPORT")
@@ -123,3 +123,19 @@ def solve_transport_model_greedy(network):
     print("HS: {}, CS: {}, TI: {}".format(len(H), len(C), len(T)))
     print("Objective: y = {}, in {} seconds".format(sum(y), round(time() - s_time, 6)))
     return results, model
+
+
+def print_matches_transport(network: Network, model: ConcreteModel):
+    print('------- Matching Streams ------')
+    for h in network.H:
+        for c in network.C:
+            if model.y[h, c].value != 0:
+                print(f'{h.name} with {c.name}', end="")
+                total_h = 0.0
+                for s in network.T:
+                    for t in network.T:
+                        if model.q[h, s, c, t].value > 0.0:
+                            # print(f'  {t} - {model.q[h, c, t].value:.2f}')
+                            total_h += model.q[h, s, c, t].value
+                            pass
+                print(f' - q = {total_h:.2f}')
