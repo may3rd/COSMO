@@ -22,13 +22,12 @@ from .src.classes.processstream import ProcessStream
 from .src.classes.stream import Stream
 from .src.classes.temperatureinterval import TemperatureInterval
 from .src.classes.utility import Utility
+from .src.solvers import log_mean_temperature_diff
 from .src.solvers.greedy_max_heat import greedy_heat, greedy_heat_2
 from .src.solvers.greedy_minmax_delta import greedy_min_delta
-from .src.solvers.min_utility_solver import solve_min_utility_instance
-from .src.solvers.transport_solver import solve_transport_model, solve_transport_model_greedy
-from .src.solvers.transshipment_solver import print_matches_transshipment
-from .src.solvers.transshipment_solver import solve_transshipment_model, solve_transshipment_model_greedy
-from .src.solvers.transport_solver import print_matches_transport
+from .src.solvers.min_utility_solver import solve_min_utility
+from .src.solvers.transport_solver import solve_transport_model, print_matches_transport
+from .src.solvers.transshipment_solver import solve_transshipment_model, print_matches_transshipment, print_exchanger_details_transshipment
 
 __all__ = ['MinUtilityProblem',
            'Network',
@@ -38,6 +37,7 @@ __all__ = ['MinUtilityProblem',
            'Utility',
            'greedy_heat', 'greedy_heat_2',
            'greedy_min_delta',
-           'solve_min_utility_instance',
-           'solve_transport_model', 'solve_transport_model_greedy', 'print_matches_transshipment',
-           'solve_transshipment_model', 'solve_transshipment_model_greedy', 'print_matches_transport']
+           'solve_min_utility',
+           'log_mean_temperature_diff',
+           'solve_transport_model', 'print_matches_transshipment',
+           'solve_transshipment_model', 'print_matches_transport', 'print_exchanger_details_transshipment']

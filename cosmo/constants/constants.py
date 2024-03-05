@@ -57,7 +57,7 @@ h = Planck = 6.62607004e-34
 hbar = h / (2.0 * pi)
 G = gravitational_constant = 6.67408e-11
 g = 9.80665
-g_sqrt = 3.1315571206669692#_math.sqrt(g)
+g_sqrt = 3.1315571206669692  # math.sqrt(g)
 e = elementary_charge = 1.6021766208e-19
 alpha = fine_structure = 0.0072973525664
 N_A = Avogadro = 6.02214076e23
@@ -176,14 +176,14 @@ hp = horsepower = 550.0 * foot * pound * g
 # force in newton
 dyn = dyne = 1e-5
 lbf = pound_force = pound * g
-kgf = kilogram_force = g # * 1 kg
+kgf = kilogram_force = g  # * 1 kg
 
 
-deg2rad = 0.017453292519943295769 # Multiple an angle in degrees by this to get radians
-rad2deg = 57.295779513082320877# Multiple an angle in radians by this to get degrees
+deg2rad = 0.017453292519943295769  # Multiple an angle in degrees by this to get radians
+rad2deg = 57.295779513082320877  # Multiple an angle in radians by this to get degrees
 
 
 root_two = 1.4142135623730951
 
 ln_10 = _math.log(10)
-ln_10_inv = 1.0/ln_10
+ln_10_inv = 1.0 / ln_10
