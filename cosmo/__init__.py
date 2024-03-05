@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Aspen HYSY Connection Library. Utility for Process Simulation.
+"""Aspen HYSYS Connection Library. Utility for Process Simulation.
 Copyright (C) 2024, Maetee Lorprajuksiri <may3rd@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -29,8 +29,3 @@ from . import hysys_typelib
 __all__ = ['hysys_simulation', 'hysys_typelib']
 
 __version__ = '0.0.1'
-
-try:
-    cosmo_dir = os.path.dirname(__file__)
-except:
-    pass

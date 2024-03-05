@@ -5,6 +5,8 @@ HYSYS V14 enum list
 Extracted from C:\Program Files\AspenTech\Aspen HYSYS V14.0\hysys.tlb
 
 """
+
+
 class EmptyValue:
     HEmpty = -32767
     HHidden = -32768
@@ -335,6 +337,7 @@ class HMouseEvent:
     hmouseButtonDblClkL = 8
     hmouseMouseEnter = 16
     hmouseMouseLeave = 32
+
 
 class HKeyEvent:
     hkeyNoKeyEvent = 0
@@ -1227,6 +1230,8 @@ class PSD_FitType:
 class VesselOrientation:
     vo_Horizontal = 0
     vo_Vertical = 1
+    duHorizontal = 0
+    duVertical = 1
 
 
 class VesselMaterialType:
@@ -2046,11 +2051,6 @@ class LocalSwitch:
     swOff = 0
     swOn = 1
     swAuto = 2
-
-
-class VesselOrientation:
-    duHorizontal = 0
-    duVertical = 1
 
 
 class OperatingMode:
@@ -3131,6 +3131,7 @@ class rcDesignType:
     rcPID = 0
     rcPI = 1
 
+
 class rcScheduleBasis:
     rcSP = 0
     rcPV = 1
@@ -3161,6 +3162,7 @@ class rcSignalAlarm:
 class scAction:
     scReverse = 0
     scDirect = 1
+
 
 class scExcution:
     scInternal = 0
@@ -3422,7 +3424,6 @@ class BlowdownFireHeatFlux:
 class BlowdownCompositionPhaseSpecification:
     bcpsOverall = 0
     bcpsIndividual = 1
-
 
 
 class BlowdownInternalSlabType:
