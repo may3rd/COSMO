@@ -1,0 +1,47 @@
+Solver command line: ['C:\\bin\\glpsol.exe', '--write', 'C:\\Users\\may3r\\AppData\\Local\\Temp\\tmp_xq2invx.glpk.raw', '--wglp', 'C:\\Users\\may3r\\AppData\\Local\\Temp\\tmpsmnr8a9q.glpk.glp', '--cpxlp', 'C:\\Users\\may3r\\AppData\\Local\\Temp\\tmpvc6t_f9r.pyomo.lp']
+
+GLPSOL: GLPK LP/MIP Solver, v4.65
+Parameter(s) specified in the command line:
+ --write C:\Users\may3r\AppData\Local\Temp\tmp_xq2invx.glpk.raw --wglp C:\Users\may3r\AppData\Local\Temp\tmpsmnr8a9q.glpk.glp
+ --cpxlp C:\Users\may3r\AppData\Local\Temp\tmpvc6t_f9r.pyomo.lp
+Reading problem data from 'C:\Users\may3r\AppData\Local\Temp\tmpvc6t_f9r.pyomo.lp'...
+C:\Users\may3r\AppData\Local\Temp\tmpvc6t_f9r.pyomo.lp:3688: warning: lower bound of variable 'x2' redefined
+C:\Users\may3r\AppData\Local\Temp\tmpvc6t_f9r.pyomo.lp:3688: warning: upper bound of variable 'x2' redefined
+296 rows, 720 columns, 2000 non-zeros
+70 integer variables, all of which are binary
+3758 lines were read
+Writing problem data to 'C:\Users\may3r\AppData\Local\Temp\tmpsmnr8a9q.glpk.glp'...
+3905 lines were written
+GLPK Integer Optimizer, v4.65
+296 rows, 720 columns, 2000 non-zeros
+70 integer variables, all of which are binary
+Preprocessing...
+9 constraint coefficient(s) were reduced
+61 rows, 85 columns, 209 non-zeros
+12 integer variables, all of which are binary
+Scaling...
+ A: min|aij| =  1.000e+00  max|aij| =  2.887e+03  ratio =  2.887e+03
+GM: min|aij| =  1.000e+00  max|aij| =  1.000e+00  ratio =  1.000e+00
+EQ: min|aij| =  1.000e+00  max|aij| =  1.000e+00  ratio =  1.000e+00
+2N: min|aij| =  7.047e-01  max|aij| =  1.325e+00  ratio =  1.880e+00
+Constructing initial basis...
+Size of triangular part is 60
+Solving LP relaxation...
+GLPK Simplex Optimizer, v4.65
+61 rows, 85 columns, 209 non-zeros
+      0: obj =   6.000000000e+00 inf =   4.990e+03 (9)
+     19: obj =   1.021584801e+01 inf =   4.530e-14 (0)
+*    41: obj =   8.305081031e+00 inf =   3.313e-13 (0)
+OPTIMAL LP SOLUTION FOUND
+Integer optimization begins...
+Long-step dual simplex will be used
++    41: mip =     not found yet >=              -inf        (1; 0)
++    53: >>>>>   1.000000000e+01 >=   9.000000000e+00  10.0% (5; 0)
++    56: >>>>>   9.000000000e+00 >=   9.000000000e+00   0.0% (3; 2)
++    56: mip =   9.000000000e+00 >=     tree is empty   0.0% (0; 9)
+INTEGER OPTIMAL SOLUTION FOUND
+Time used:   0.0 secs
+Memory used: 0.5 Mb (547504 bytes)
+Writing MIP solution to 'C:\Users\may3r\AppData\Local\Temp\tmp_xq2invx.glpk.raw'...
+1025 lines were written
+

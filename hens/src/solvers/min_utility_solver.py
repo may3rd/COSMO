@@ -1,112 +1,125 @@
 # Minimization of Utility Solver
-from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory
+from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, value
 
 
-def solve_min_utility_instance(problem_instance, debug: bool = False):
-
+def solve_min_utility(problem_instance, debug: bool = False):
     # declaring model
-    model = ConcreteModel(name="MIN_UTILITY")  # declaring concrete model
+    model_to_solve: ConcreteModel = ConcreteModel(name="MIN_UTILITY")  # declaring concrete model
 
     # declaring model inputs
-    HS = problem_instance.hot_streams
-    CS = problem_instance.cold_streams
-    HU = problem_instance.hot_utilities
-    CU = problem_instance.cold_utilities
-    TI = problem_instance.intervals
-    sigma_HS = problem_instance.sigmas
-    delta_CS = problem_instance.deltas
-    accepted_HU_sigmas = problem_instance.accepted_hu_sigmas
-    accepted_CU_deltas = problem_instance.accepted_cu_deltas
-    k_HU = {}
-    for hot_utility in HU:
-        k_HU[hot_utility] = hot_utility.cost
-    k_CU = {}
-    for cold_utility in CU:
-        k_CU[cold_utility] = cold_utility.cost   
+    hot_streams = problem_instance.hot_streams
+    cold_streams = problem_instance.cold_streams
+    hot_utilities = problem_instance.hot_utilities
+    cold_utilities = problem_instance.cold_utilities
+    intervals = problem_instance.intervals
+    sigmas = problem_instance.sigmas
+    deltas = problem_instance.deltas
+    accepted_hu_sigmas = problem_instance.accepted_hu_sigmas
+    accepted_cu_deltas = problem_instance.accepted_cu_deltas
+    k_hu = {}
+    for hot_utility in hot_utilities:
+        k_hu[hot_utility] = hot_utility.cost
+    k_cu = {}
+    for cold_utility in cold_utilities:
+        k_cu[cold_utility] = cold_utility.cost
 
     # declaring model variables
-    model.cost = Var(within=NonNegativeReals)
-    model.sigma_HU = Var(HU, TI, within=NonNegativeReals)
-    model.delta_CU = Var(CU, TI, within=NonNegativeReals)
-    model.Rset = RangeSet(0, len(TI))
-    model.R = Var(model.Rset, within=NonNegativeReals)
-    last_R = len(TI)
+    model_to_solve.cost = Var(within=NonNegativeReals)
+    model_to_solve.sigma_hu = Var(hot_utilities, cold_streams, intervals, within=NonNegativeReals)
+    model_to_solve.delta_cu = Var(hot_streams, cold_utilities, intervals, within=NonNegativeReals)
+    model_to_solve.residual_set = RangeSet(0, len(intervals))
+    model_to_solve.residual_ik = Var(model_to_solve.residual_set, within=NonNegativeReals)
+    last_residual = len(intervals)
 
     # defining model cost computation
     def utility_cost_rule(model):
-        HU_cost = sum(k_HU[hu] * model.sigma_HU[hu, ti] for hu in HU for ti in TI)
-        CU_cost = sum(k_CU[cu] * model.delta_CU[cu, ti] for cu in CU for ti in TI)
-        return model.cost == HU_cost + CU_cost
-    model.utility_cost_constraint = Constraint(rule=utility_cost_rule)
+        hu_cost = sum(k_hu[hu] * model.sigma_hu[hu, cs, ti] for hu in hot_utilities for cs in cold_streams for ti in intervals)
+        cu_cost = sum(k_cu[cu] * model.delta_cu[hs, cu, ti] for hs in hot_streams for cu in cold_utilities for ti in intervals)
+        return model.cost == hu_cost + cu_cost
+    model_to_solve.utility_cost_constraint = Constraint(rule=utility_cost_rule)
 
     # defining model objective
     def cost_min_rule(model):
         return model.cost
-    model.obj = Objective(rule=cost_min_rule)
+    model_to_solve.obj = Objective(rule=cost_min_rule)
 
     # heat balance restriction
     def heat_balance_rule(model, t_interval):
-        interval_index = TI.index(t_interval) + 1
-        entering_energy = (sum(sigma_HS[hs, t_interval] for hs in HS) +
-                           sum(model.sigma_HU[hu, t_interval] for hu in HU) + model.R[interval_index - 1])
-        exiting_energy = (sum(delta_CS[cs, t_interval] for cs in CS) +
-                          sum(model.delta_CU[cu, t_interval] for cu in CU) + model.R[interval_index])
+        interval_index = intervals.index(t_interval) + 1
+        entering_energy = sum(sigmas[hs, t_interval] for hs in hot_streams) + sum(model.sigma_hu[hu, cs, t_interval] for hu in hot_utilities for cs in cold_streams) + model.residual_ik[interval_index - 1]
+        exiting_energy = sum(deltas[cs, t_interval] for cs in cold_streams) + sum(model.delta_cu[hs, cu, t_interval] for hs in hot_streams for cu in cold_utilities) + model.residual_ik[interval_index]
         return entering_energy == exiting_energy
-    model.heat_balance_constraint = Constraint(TI, rule=heat_balance_rule) 
+    model_to_solve.heat_balance_constraint = Constraint(intervals, rule=heat_balance_rule)
 
     # residual heat entering the first temperature interval and the one exiting the last temperature interval
     # must be zero
     def r_zero_rule(model, r):
-        if (r == 0) or (r == last_R):
-            return model.R[r] == 0
+        if (r == 0) or (r == last_residual):
+            return model.residual_ik[r] == 0
         else:
             return Constraint.Skip
-    model.r_zero_constraint = Constraint(model.Rset, rule=r_zero_rule)
+    model_to_solve.r_zero_constraint = Constraint(model_to_solve.residual_set, rule=r_zero_rule)
 
     # forbidden heat exchanges for hot utilities
-    def forbidden_hu_intervals(model, hu, ti):
-        if accepted_HU_sigmas[hu, ti]:
+    def forbidden_hu_intervals(model, hu, cs, ti):
+        if accepted_hu_sigmas[hu, ti]:
             return Constraint.Skip
         else:
-            return model.sigma_HU[hu, ti] == 0
-    model.forbidden_hu_intervals_constraint = Constraint(HU, TI, rule=forbidden_hu_intervals)
+            return model.sigma_hu[hu, cs, ti] == 0
+    model_to_solve.forbidden_hu_intervals_constraint = Constraint(hot_utilities, cold_streams, intervals, rule=forbidden_hu_intervals)
 
     # forbidden heat exchanges for cold utilities
-    def forbidden_cu_intervals(model, cu, ti):
-        if accepted_CU_deltas[cu, ti]:
+    def forbidden_cu_intervals(model, hs, cu, ti):
+        if accepted_cu_deltas[cu, ti]:
             return Constraint.Skip
         else:
-            return model.delta_CU[cu, ti] == 0
-    model.forbidden_cu_intervals_constraint = Constraint(CU, TI, rule=forbidden_cu_intervals)
+            return model.delta_cu[hs, cu, ti] == 0
+    model_to_solve.forbidden_cu_intervals_constraint = Constraint(hot_streams, cold_utilities, intervals, rule=forbidden_cu_intervals)
 
     # solving model
     solver = SolverFactory("glpk")
-    solver.solve(model)
+    solver.solve(model_to_solve)
     
     # generating sigmas dictionary for hot utilities
-    sigma_HU = {}
-    for utility in HU:
-        for interval in TI:
+    sigma_hu = {}
+    for hu in hot_utilities:
+        for k in intervals:
             # ignore VS Code error: line works as intended
-            sigma_HU[utility, interval] = model.sigma_HU[utility, interval].value
+            sigma_hu[hu, k] = sum(value(model_to_solve.sigma_hu[hu, cs, k]) for cs in cold_streams)
     
     # generating deltas dictionary for cold utilities
-    delta_CU = {}
-    for utility in CU:
-        for interval in TI:
+    delta_cu = {}
+    for hu in cold_utilities:
+        for k in intervals:
             # ignore VS Code error: line works as intended
-            delta_CU[utility, interval] = model.delta_CU[utility, interval].value
+            delta_cu[hu, k] = sum(value(model_to_solve.delta_cu[hs, hu, k]) for hs in hot_streams)
+
+    # determine the pinch temperature interval
+    residual_ik_value = {i: value(model_to_solve.residual_ik[i]) for i in model_to_solve.residual_ik}
+    zero_indices = [
+        i for i in residual_ik_value.keys() if residual_ik_value[i] < 1e-6
+    ]
+    pinch_interval = 0
+    if zero_indices:
+        for i in zero_indices:
+            if not (i == 0 or i == len(intervals)):
+                pinch_interval = i
+                break
 
     if debug:
-        print('debug mode')
-        print('hot utlity')
-        for utility in HU:
-            for interval in TI:
-                print(sigma_HU[utility, interval])
+        print('--------------------- debug mode : begin ---------------------')
+        print('hot utility')
+        for hu in hot_utilities:
+            for k in intervals:
+                print(sigma_hu[hu, k])
 
         print('cold utility')
-        for utility in CU:
-            for interval in TI:
-                print(delta_CU[utility, interval])
+        for hu in cold_utilities:
+            for k in intervals:
+                print(delta_cu[hu, k])
 
-    return sigma_HU, delta_CU
+        print('pinch interval')
+        print(intervals[pinch_interval])
+        print('--------------------- debug mode : end ---------------------')
+
+    return sigma_hu, delta_cu, pinch_interval
