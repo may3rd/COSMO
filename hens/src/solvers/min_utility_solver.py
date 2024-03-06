@@ -1,9 +1,8 @@
 # Minimization of Utility Solver
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, value
-from hens import MinUtilityProblem
 
 
-def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False):
+def solve_min_utility(problem_instance, debug: bool = False):
     # declaring model
     model_to_solve: ConcreteModel = ConcreteModel(name="MIN_UTILITY")  # declaring concrete model
 
@@ -83,17 +82,17 @@ def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False):
     
     # generating sigmas dictionary for hot utilities
     sigma_hu = {}
-    for hot in hot_utilities:
+    for hu in hot_utilities:
         for k in intervals:
             # ignore VS Code error: line works as intended
-            sigma_hu[hot, k] = sum(value(model_to_solve.sigma_hu[hot, cs, k]) for cs in cold_streams)
+            sigma_hu[hu, k] = sum(value(model_to_solve.sigma_hu[hu, cs, k]) for cs in cold_streams)
     
     # generating deltas dictionary for cold utilities
     delta_cu = {}
-    for cold in cold_utilities:
+    for hu in cold_utilities:
         for k in intervals:
             # ignore VS Code error: line works as intended
-            delta_cu[cold, k] = sum(value(model_to_solve.delta_cu[hs, cold, k]) for hs in hot_streams)
+            delta_cu[hu, k] = sum(value(model_to_solve.delta_cu[hs, hu, k]) for hs in hot_streams)
 
     # determine the pinch temperature interval
     residual_ik_value = {i: value(model_to_solve.residual_ik[i]) for i in model_to_solve.residual_ik}
@@ -106,39 +105,21 @@ def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False):
             if not (i == 0 or i == len(intervals)):
                 pinch_interval = i
                 break
-    pinch_hots_pass: bool = False
-    pinch_colds_pass: bool = False
-
-    for hot in problem_instance.hot_streams:
-        pinch_hots_pass = intervals[pinch_interval].passes_through_interval(hot.interval)
-        if pinch_hots_pass:
-            break
-    for cold in problem_instance.cold_streams:
-        pinch_colds_pass = intervals[pinch_interval].passes_through_interval(cold.interval)
-        if pinch_colds_pass:
-            break
-    if not (pinch_colds_pass and pinch_hots_pass):
-        pinch_interval = 0
 
     if debug:
         print('--------------------- debug mode : begin ---------------------')
         print('hot utility')
-        for hot in hot_utilities:
+        for hu in hot_utilities:
             for k in intervals:
-                if sigma_hu[hot, k] > 0:
-                    print(hot, k, sigma_hu[hot, k])
+                print(sigma_hu[hu, k])
 
         print('cold utility')
-        for cold in cold_utilities:
+        for hu in cold_utilities:
             for k in intervals:
-                if delta_cu[cold, k] > 0:
-                    print(cold, k, delta_cu[cold, k])
+                print(delta_cu[hu, k])
 
-        if pinch_interval > 0:
-            print('pinch interval')
-            print(intervals[pinch_interval])
-        else:
-            print("No pinch")
+        print('pinch interval')
+        print(intervals[pinch_interval])
         print('--------------------- debug mode : end ---------------------')
 
     return sigma_hu, delta_cu, pinch_interval
