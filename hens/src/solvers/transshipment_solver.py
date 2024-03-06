@@ -43,7 +43,13 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
         u_ij = network.U_greedy
     u_ijk = network.u_ijk
     u_ijkl = network.u_ijkl
-
+    # update u_ij
+    for i in hots:
+        for j in colds:
+            try:
+                u_ij[i, j] = min(u_ij[i, j], max(0.0, min(i.FCp, j.FCp) * (i.interval.t_max - j.interval.t_min)))
+            except AttributeError:
+                pass
     # determine n_h and n_c based on interval
     n_h = []
     n_c = []
@@ -56,11 +62,9 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
             if cold.interval.shifted(diff_t_min).passes_through_interval(interval):
                 if cold not in n_c:
                     n_c.append(cold)
-
     # max demand and max supply for M-5
     max_demand: float = max(network.demands.values())
     max_supply: float = max(network.heats.values())
-
     # declaring model variables
     model_to_solve.q_ijk = Var(hots, colds, intervals, within=NonNegativeReals)
     model_to_solve.q_ijkl = Var(hots, intervals, colds, intervals, within=NonNegativeReals)
@@ -197,7 +201,6 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
     sum_y = sum([value(model_to_solve.y_ij[h, c]) for h in hots for c in colds])
     print("HS: {}, CS: {}, TI: {}".format(len(hots), len(colds), len(intervals)))
     print("Objective: y = {}, in {} seconds".format(sum_y, round(time() - s_time, 6)))
-
     return results, model_to_solve
 
 
@@ -220,7 +223,6 @@ def print_exchanger_details_transshipment(network: Network, model: ConcreteModel
     print(f"The solve model is {network.model}")
     hx_id: int = 1
     hxs: list = []
-    diff_temp: float = network.diff_t_min
     for h in network.H:
         for c in network.C:
             try:
@@ -229,13 +231,11 @@ def print_exchanger_details_transshipment(network: Network, model: ConcreteModel
                     hx_id += 1
                     hx_q: float = 0.0
                     t_h: list[float] = []
-                    t_c: list[float] = []
                     for t in network.T:
                         if network.model == "M4":
                             q = sum(value(model.q_ijkl[h, t, c, k] for k in network.T))
                         else:
                             q = value(model.q_ijk[h, c, t])
-
                         if q > 0.0:
                             hx_q += q
                             if t.t_min not in t_h:
@@ -246,6 +246,5 @@ def print_exchanger_details_transshipment(network: Network, model: ConcreteModel
                             hxs.append({'exchanger_id': exchanger_id, 'hot': h, 'cold': c, 't_h': t_h, 'q': hx_q})
             except KeyError:
                 pass
-
     for hx in hxs:
         print(f'{hx['exchanger_id']} - q = {hx['q']}, HS={hx['hot'].name}, CS={hx['cold'].name}, T={hx['t_h']}')
