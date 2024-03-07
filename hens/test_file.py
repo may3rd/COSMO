@@ -15,7 +15,7 @@ if __name__ == '__main__':
     problems = ["14sp1"]
     filename = 'test.csv'
     model_selected = "M5"
-    file_test = False
+    file_test = True
 
     if file_test:
         min_up_test: MinUtilityProblem = MinUtilityProblem.generate_from_csv(os.path.join(os.getcwd(), filename))
@@ -33,12 +33,12 @@ if __name__ == '__main__':
         print("---- Above Pinch ----")
         above_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=False)
         _, above_pinch_model = solve_transshipment_model(above_pinch_network, log=False, model_selected=model_selected)
-        # print_matches_transshipment(above_pinch_network, above_pinch_model)
+        print_matches_transshipment(above_pinch_network, above_pinch_model)
 
         print("---- Below Pinch ----")
         below_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=True)
         _, below_pinch_model = solve_transshipment_model(below_pinch_network, log=False, model_selected=model_selected)
-        # print_matches_transshipment(below_pinch_network, below_pinch_model)
+        print_matches_transshipment(below_pinch_network, below_pinch_model)
         # print_exchanger_details_transshipment(below_pinch_network, below_pinch_model)
 
     # for problem in problems:

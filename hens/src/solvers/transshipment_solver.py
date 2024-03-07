@@ -43,6 +43,13 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
         u_ij = network.U_greedy
     u_ijk = network.u_ijk
     u_ijkl = network.u_ijkl
+    # update a tighter upper bound (Gundersen et al. (1997)
+    for i in hots:
+        for j in colds:
+            try:
+                u_ij[i, j] = min(u_ij[i, j], max(min(i.FCp, j.FCp)*(i.interval.t_max - j.interval.t_min), 0.0))
+            except AttributeError:
+                pass
     # determine n_h and n_c based on interval
     n_h = []
     n_c = []
