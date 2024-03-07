@@ -114,9 +114,7 @@ class MinUtilityProblem:
                 self.temperatures.append(t_in)
             if t_out not in self.temperatures:
                 self.temperatures.append(t_out)
-
         self.temperatures.sort(reverse=True)
-
         # creating intervals
         for i in range(len(self.temperatures) - 1):
             new_interval = TemperatureInterval(self.temperatures[i], self.temperatures[i + 1])
@@ -125,16 +123,13 @@ class MinUtilityProblem:
     def __init_heats(self) -> None:
         for interval in self.intervals:
             total_h_interval: float = 0.0
-
             # initializing sigmas
             for hot_stream in self.hot_streams:
                 if hot_stream.interval.passes_through_interval(interval):
                     self.sigmas[(hot_stream, interval)] = TemperatureInterval.common_interval(interval, hot_stream.interval).diff_temp * hot_stream.FCp
                 else:
                     self.sigmas[(hot_stream, interval)] = 0
-
                 total_h_interval += self.sigmas[(hot_stream, interval)]
-
             # initializing deltas. This one is tricky because intervals were constructed 
             # by adding minimum diff temp to each CS interval, but CS intervals were nos modified
             for cold_stream in self.cold_streams:
@@ -142,22 +137,18 @@ class MinUtilityProblem:
                     self.deltas[(cold_stream, interval)] = TemperatureInterval.common_interval(interval, cold_stream.interval.shifted(self.diff_t_min)).diff_temp * cold_stream.FCp
                 else:
                     self.deltas[(cold_stream, interval)] = 0
-
                 total_h_interval -= self.deltas[(cold_stream, interval)]
-
             # initializing problem table
             self.problem_table[interval] = total_h_interval
 
     def __init_accepted_u_intervals(self) -> None:
         for interval in self.intervals:
-
             # accepted sigmas
             for hot_utility in self.hot_utilities:
                 if hot_utility.interval.passes_through_interval(interval):
                     self.accepted_hu_sigmas[(hot_utility, interval)] = True
                 else:
                     self.accepted_hu_sigmas[(hot_utility, interval)] = False
-
             # accepted deltas
             for cold_utility in self.cold_utilities:
                 if cold_utility.interval.shifted(self.diff_t_min).passes_through_interval(interval):
@@ -169,7 +160,6 @@ class MinUtilityProblem:
         for hot_stream in self.hot_streams + self.hot_utilities:
             for cold_stream in self.cold_streams + self.cold_utilities:
                 self.accepted_h_c[(hot_stream, cold_stream)] = 1
-
         # not transfer hot utility to cold utility
         for H in self.hot_utilities:
             for C in self.cold_utilities:
@@ -187,59 +177,43 @@ class MinUtilityProblem:
     def __init_heat_cascade(self) -> None:
         exit_h: float = 0
         lowest_exit_h: float = 0
-
         i: int = 0
         pinch_interval: int = i
-
         for interval in self.intervals:
             row: dict[str, float] = {'deltaH': self.problem_table[interval]}
-
             exit_h += row['deltaH']
             row['exitH'] = exit_h
-
             if exit_h < lowest_exit_h:
                 lowest_exit_h = exit_h
                 pinch_interval = i
-
             self.unfeasible_heat_cascade.append(row)
             i += 1
-
         self.demanded_hot_utility = -lowest_exit_h
         exit_h = self.demanded_hot_utility
-
         for interval in self.intervals:
             row = {'deltaH': self.problem_table[interval]}
-
             exit_h += row['deltaH']
             row['exitH'] = exit_h
-
             self.heat_cascade.append(row)
-
         self.demanded_cold_utility = exit_h
-        self.pinch_temperature = self.intervals[pinch_interval].t_min
-
-        return
+        if pinch_interval > 0:
+            self.pinch_temperature = self.intervals[pinch_interval].t_min
 
     def __init_composite_diagram(self) -> None:
         # need temperatures and enthalpies in ascending order
         temperatures: list[float] = self.temperatures[::-1]
         delta_h_hot: list[float] = []
         delta_h_cold: list[float] = []
-
         # find enthalpies change for hot and cold composite streams
         for interval in self.intervals[::-1]:
             total_h: float = 0.0
             for H in self.hot_streams:
                 total_h += self.sigmas[(H, interval)]
-
             delta_h_hot.append(total_h)
-
             total_h: float = 0.0
             for C in self.cold_streams:
                 total_h += self.deltas[(C, interval)]
-
             delta_h_cold.append(total_h)
-
         total_h_hot: float = 0
         self.hot_composite_h.append(total_h_hot)
         self.hot_composite_t.append(temperatures[0])
@@ -248,7 +222,6 @@ class MinUtilityProblem:
                 total_h_hot += delta_h_hot[i - 1]
                 self.hot_composite_h.append(total_h_hot)
                 self.hot_composite_t.append(temperatures[i])
-
         total_h_cold: float = self.demanded_cold_utility
         self.cold_composite_h.append(total_h_cold)
         self.cold_composite_t.append(temperatures[0])
@@ -258,21 +231,15 @@ class MinUtilityProblem:
                 self.cold_composite_h.append(total_h_cold)
                 self.cold_composite_t.append(temperatures[i])
 
-        return
-
     def __init_grand_composite_curve(self) -> None:
         self.grand_composite_h.append(self.demanded_hot_utility)
         self.grand_composite_t.append(self.temperatures[0])
-
         for i in range(1, len(self.temperatures)):
             self.grand_composite_h.append(self.heat_cascade[i - 1]['exitH'])
             self.grand_composite_t.append(self.temperatures[i])
 
-        return
-
     def change_diff_t_min(self, diff_t_min: float) -> None:
         self.diff_t_min = diff_t_min
-
         # clear all related parameters
         self.temperatures = []
         self.intervals = []
@@ -293,7 +260,6 @@ class MinUtilityProblem:
         self.demanded_hot_utility = 0
         self.demanded_cold_utility = 0
         self.pinch_temperature = 0
-
         self.__init_temperatures(self.hot_streams + self.cold_streams, self.hot_utilities + self.cold_utilities)
         self.__init_heats()
         self.__init_accepted_u_intervals()
@@ -305,13 +271,10 @@ class MinUtilityProblem:
     def plot_composite_diagram(self, save: bool = False, filename: str = 'composite.svg') -> None:
         plt.plot(self.hot_composite_h, self.hot_composite_t, 'tab:red')
         plt.plot(self.cold_composite_h, self.cold_composite_t, 'tab:blue')
-
         plt.plot(self.hot_composite_h, self.hot_composite_t, 'ro')
         plt.plot(self.cold_composite_h, self.cold_composite_t, 'bo')
-
         left_hot_h_index: int = 0
         right_cold_h_index: int = 0
-
         # initialize list
         left_hot_h: list[float] = []
         left_hot_t: list[float] = []
@@ -319,19 +282,16 @@ class MinUtilityProblem:
         right_hot_h: list[float] = []
         right_cold_h: list[float] = []
         right_cold_t: list[float] = []
-
         # find left point of hot composite curve
         for i in range(len(self.hot_composite_h)):
             if self.hot_composite_h[i] >= self.cold_composite_h[0]:
                 left_hot_h_index = i
                 break
-
         # find right point of cold composite curve
         for i in range(len(self.cold_composite_h) - 1, -1, -1):
             if self.cold_composite_h[i] <= self.hot_composite_h[-1]:
                 right_cold_h_index = i
                 break
-
         # calculate temperature according it left and right points
         if left_hot_h_index == 0:
             left_hot_h.append(self.hot_composite_h[0])
@@ -340,21 +300,17 @@ class MinUtilityProblem:
             for i in range(left_hot_h_index):
                 left_hot_h.append(self.hot_composite_h[i])
                 left_hot_t.append(self.hot_composite_t[i])
-
             i = left_hot_h_index
-            m = ((self.hot_composite_t[i] - self.hot_composite_t[i - 1])
-                 / (self.hot_composite_h[i] - self.hot_composite_h[i - 1]))
+            m = ((self.hot_composite_t[i] - self.hot_composite_t[i - 1]) / (self.hot_composite_h[i] - self.hot_composite_h[i - 1]))
             left_hot_h.append(self.cold_composite_h[0])
             h_diff = (self.cold_composite_h[0] - self.hot_composite_h[i - 1])
             left_hot_t.append(self.hot_composite_t[i - 1] + h_diff * m)
-
         if left_hot_h_index == 0:
             right_cold_h = self.hot_composite_h
         else:
             right_hot_h.append(left_hot_h[-1])
             for r in self.hot_composite_h[left_hot_h_index:]:
                 right_hot_h.append(r)
-
         if right_cold_h_index == len(self.cold_composite_h) - 1:
             right_cold_h.append(self.cold_composite_h[-1])
             right_cold_t.append(self.cold_composite_t[-1])
@@ -362,72 +318,55 @@ class MinUtilityProblem:
             for i in range(len(self.cold_composite_h) - 1, right_cold_h_index, -1):
                 right_cold_h.append(self.cold_composite_h[i])
                 right_cold_t.append(self.cold_composite_t[i])
-
             i = right_cold_h_index
             m = ((self.cold_composite_t[i + 1] - self.cold_composite_t[i])
                  / (self.cold_composite_h[i + 1] - self.cold_composite_h[i]))
             right_cold_h.append(self.hot_composite_h[-1])
             right_cold_t.append(self.cold_composite_t[i] + (self.hot_composite_h[-1] - self.cold_composite_h[i]) * m)
-
         # correct order of right_cold_h and right_cold_t
         right_cold_h.reverse()
         right_cold_t.reverse()
-
         for x in self.cold_composite_h[:right_cold_h_index]:
             left_cold_h.append(x)
-
         if right_cold_h_index < len(self.cold_composite_h) - 1:
             left_cold_h.append(right_cold_h[0])
-
         combined_h = sorted(list(set(right_hot_h) | set(left_cold_h)))
         hot_t = np.interp(combined_h, self.hot_composite_h, self.hot_composite_t)
         cold_t = np.interp(combined_h, self.cold_composite_h, self.cold_composite_t)
-
         plt.fill_between(combined_h, hot_t, cold_t, color='g', alpha=0.3)
         plt.fill_between(left_hot_h, 0, left_hot_t, color='b', alpha=0.5)
         plt.fill_between(right_cold_h, 0, right_cold_t, color='r', alpha=0.5)
-
         try:
             pinch_index = self.cold_composite_t.index(self.pinch_temperature)
             pinch_h = self.cold_composite_h[pinch_index]
             plt.plot([pinch_h, pinch_h], [self.temperatures[0], self.temperatures[-1]], ':')
         except ValueError:
             pass
-
         plt.grid(True)
         plt.title('Temperature-Enthalpy Composite Diagram')
         plt.xlabel('Enthalpy')
         plt.ylabel('Temperature')
-
         if save:
             print(f'Save composite diagram to {filename}')
             plt.savefig(filename)
         else:
             plt.show()
 
-        return
-
     def plot_grand_composite_curve(self, save: bool = False, filename: str = 'grand_composite.png') -> None:
         plt.plot(self.grand_composite_h, self.grand_composite_t, 'tab:blue')
         plt.plot(self.grand_composite_h, self.grand_composite_t, 'bo')
-
         plt.fill_between([0, self.grand_composite_h[0]], 0, self.temperatures[0], color='r', alpha=0.5)
         plt.fill_between([0, self.grand_composite_h[-1]], 0, self.temperatures[-1], color='b', alpha=0.5)
-
         plt.plot([0, self.grand_composite_h[-1]], [self.pinch_temperature, self.pinch_temperature], ':')
-
         plt.grid(True)
         plt.title('Grand Composite Curve')
         plt.xlabel('Net Enthalpy Change')
         plt.ylabel('Temperature')
-
         if save:
             print(f'Same grand composite curve to {filename}')
             plt.savefig(filename)
         else:
             plt.show()
-
-        return
 
     def __str__(self) -> str:
         return "HS: {} \nCS: {}\nHU: {}\nCU: {}\nDT: {}".format(
@@ -461,12 +400,10 @@ class MinUtilityProblem:
 
     @staticmethod
     def generate_from_data(data_id: str) -> Any:
-
         path = 'data/original_problems/' + data_id + '.dat'
         f = open(path, 'r')
         lines = f.readlines()
         f.close()
-
         elements = [line.split() for line in lines]
         diff_t_min = float(elements[3][1])
         elements = elements[4:]
@@ -474,12 +411,10 @@ class MinUtilityProblem:
                           f_cp=float(e[3])) for e in elements if e[0][1] != 'U']
         utilities = [Utility(name=str(e[0]), t_in=float(e[1]), t_out=float(e[2]),
                              cost=float(e[3])) for e in elements if e[0][1] == 'U']
-
         return MinUtilityProblem(streams, utilities, diff_t_min)
 
     @staticmethod
     def generate_from_csv(filename: str) -> Any:
-
         elements = []
         # open the csv file in read mode
         with open(filename, 'r') as csv_file:
@@ -488,21 +423,15 @@ class MinUtilityProblem:
             for row in csv_reader:
                 trimmed_row = [element.strip() for element in row]
                 elements.append(trimmed_row)
-
         if len(elements[0]) == 2:  # first line is number of stream and number of utility
             stream_count = int(elements[0][0])
             utility_count = int(elements[0][1])
-
             diff_t_min = float(elements[1][1])
             elements_streams = elements[2:stream_count + 2]
             elements_utilities = elements[stream_count + 2:utility_count + stream_count + 2]
-            streams = [Stream(name=str(e[0]), t_in=float(e[1]), t_out=float(e[2]),
-                              f_cp=float(e[3])) for e in elements_streams]
-            utilities = [Utility(name=str(e[0]), t_in=float(e[1]), t_out=float(e[2]),
-                                 cost=float(e[3])) for e in elements_utilities]
-
+            streams = [Stream(name=str(e[0]), t_in=float(e[1]), t_out=float(e[2]), f_cp=float(e[3])) for e in elements_streams]
+            utilities = [Utility(name=str(e[0]), t_in=float(e[1]), t_out=float(e[2]), cost=float(e[3])) for e in elements_utilities]
             return_obj = MinUtilityProblem(streams, utilities, diff_t_min)
-
             if stream_count + utility_count + 2 < len(elements):
                 elements_permit = elements[stream_count + utility_count + 2:]
                 if len(elements_permit) > 0:
@@ -511,5 +440,4 @@ class MinUtilityProblem:
                         cold_stream = return_obj.get_cold_stream(e[1])
                         return_obj.accepted_h_c[(hot_stream, cold_stream)] = int(e[2])
             return return_obj
-
         return None

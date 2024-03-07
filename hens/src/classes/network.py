@@ -23,10 +23,13 @@ class Network:
     def __init__(self,
                  min_utility_instance: MinUtilityProblem,
                  utility_sigmas: dict[tuple[Stream, TemperatureInterval], float],
-                 utility_deltas: dict[tuple[Stream, TemperatureInterval], float]) -> None:
+                 utility_deltas: dict[tuple[Stream, TemperatureInterval], float],
+                 pinch_interval: int = 0, below_pinch: bool = False) -> None:
         self.H: list[Stream] = min_utility_instance.hot_streams + min_utility_instance.hot_utilities
         self.C: list[Stream] = min_utility_instance.cold_streams + min_utility_instance.cold_utilities
         self.T: list[TemperatureInterval] = min_utility_instance.intervals
+        self.PinchInterval: int = pinch_interval  # index of pinch interval, default is 0
+        self.below_pinch: bool = below_pinch
         self.P = min_utility_instance.accepted_h_c
         self.Pk = min_utility_instance.accepted_h_c_k
         self.diff_t_min: float = min_utility_instance.diff_t_min
@@ -38,6 +41,7 @@ class Network:
         self.U_greedy: dict[(Any, Any), float] = {}
         self.u_ijk: dict[tuple[Stream, Stream, TemperatureInterval], float] = {}
         self.u_ijkl: dict[tuple[Stream, TemperatureInterval, Stream, TemperatureInterval], float] = {}
+        self.model: str = ''
         self.__update_sigmas(utility_sigmas)
         self.__update_deltas(utility_deltas)
         self.__init_heats()
@@ -46,6 +50,14 @@ class Network:
         self.__init_u_ij_greedy()
         self.__init_u_ijk()
         self.__init_u_ijkl()
+        self.__update_intervals()
+
+    def __update_intervals(self):
+        if self.PinchInterval > 0:
+            if self.below_pinch:
+                self.T = self.T[self.PinchInterval:]
+            else:
+                self.T = self.T[0:self.PinchInterval]
 
     def __update_sigmas(self, new_sigmas: dict[tuple[Stream, TemperatureInterval], float]) -> None:
         for key in new_sigmas.keys():
@@ -100,7 +112,7 @@ class Network:
                 self.U_greedy[(hot_stream, cold_stream)] = greedy_heat(self.T, hot_stream, cold_stream, self.sigmas, self.deltas)[0]
 
     def __str__(self) -> str:
-        return "H: {} \nC: {}".format(len(self.H), len(self.C))
+        return "H: {} {}\nC: {} {}\nT: {}".format(len(self.H), self.H, len(self.C), self.C, self.T)
 
     def __repr__(self) -> str:
         return self.__str__()
@@ -130,5 +142,5 @@ class Network:
         if plot_grand_composite:
             min_obj.plot_grand_composite_curve()
 
-        (sigma_HU, delta_HU) = solve_min_utility(min_obj, debug=False)
+        (sigma_HU, delta_HU, _) = solve_min_utility(min_obj, debug=False)
         return Network(min_obj, sigma_HU, delta_HU)
