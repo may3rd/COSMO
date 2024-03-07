@@ -43,7 +43,7 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
         u_ij = network.U_greedy
     u_ijk = network.u_ijk
     u_ijkl = network.u_ijkl
-    # update u_ij
+    # update u_ij to a tighter upper bound by Gundersen et al. (1997).
     for i in hots:
         for j in colds:
             try:

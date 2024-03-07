@@ -33,12 +33,12 @@ if __name__ == '__main__':
         print("---- Above Pinch ----")
         above_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=False)
         _, above_pinch_model = solve_transshipment_model(above_pinch_network, log=False, model_selected=model_selected)
-        # print_matches_transshipment(above_pinch_network, above_pinch_model)
+        print_matches_transshipment(above_pinch_network, above_pinch_model)
 
         print("---- Below Pinch ----")
         below_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=True)
         _, below_pinch_model = solve_transshipment_model(below_pinch_network, log=False, model_selected=model_selected)
-        # print_matches_transshipment(below_pinch_network, below_pinch_model)
+        print_matches_transshipment(below_pinch_network, below_pinch_model)
         # print_exchanger_details_transshipment(below_pinch_network, below_pinch_model)
 
     # for problem in problems:
