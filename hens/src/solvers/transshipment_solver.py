@@ -5,7 +5,7 @@ Include model M-1 to M-5, selected by parameter model_selected
 """
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, Binary, value
 from time import time
-from hens import Network, log_mean_temperature_diff
+from hens import Network, log_mean_temperature_diff, Stream
 
 
 def solve_transshipment_model(network: Network, greedy: bool = False, model_selected: str = "M1", log: bool = False):
@@ -31,37 +31,21 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
     # declaring model inputs
     intervals = network.T  # temperature intervals
     diff_t_min = network.diff_t_min
-    hots = list(set([i for i in network.H for k in intervals if i.interval.passes_through_interval(k)]))  # hot streams including utilities
-    colds = list(set(j for j in network.C for k in intervals if j.interval.shifted(diff_t_min).passes_through_interval(k)))  # cold streams including utilities
+    hots = sorted(list(set([i for i in network.H for k in intervals if i.interval.passes_through_interval(k)])), key=lambda x: x.name)  # hot streams including utilities
+    colds = sorted(list(set(j for j in network.C for k in intervals if j.interval.shifted(diff_t_min).passes_through_interval(k))), key=lambda x: x.name)  # cold streams including utilities
     sigma = network.sigmas  # heat supply per hot stream per interval
     delta = network.deltas  # heat demand per cold stream per interval
     p_ij = network.P  # stream exchange permission
     p_ijk = network.Pk  # stream exchange in interval permission
     if not greedy:
-        u_ij = network.U  # Big-M parameter
+        u_ij = dict([((i, j), min(float(sum(sigma[i, k] for k in intervals)), float(sum(delta[j, k] for k in intervals)), max(min(i.FCp, j.FCp)*(i.interval.t_max - j.interval.t_min), 0.0))) for i in hots for j in colds if i.__class__ == Stream and j.__class__ == Stream])
     else:
         u_ij = network.U_greedy
-    u_ijk = network.u_ijk
-    u_ijkl = network.u_ijkl
+    # u_ijk = network.u_ijk
+    # u_ijkl = network.u_ijkl
     # update a tighter upper bound (Gundersen et al. (1997)
-    for i in hots:
-        for j in colds:
-            try:
-                u_ij[i, j] = min(u_ij[i, j], max(min(i.FCp, j.FCp)*(i.interval.t_max - j.interval.t_min), 0.0))
-            except AttributeError:
-                pass
-    # determine n_h and n_c based on interval
-    n_h = []
-    n_c = []
-    for interval in intervals:
-        for hot in hots:
-            if hot.interval.passes_through_interval(interval):
-                if hot not in n_h:
-                    n_h.append(hot)
-        for cold in colds:
-            if cold.interval.shifted(diff_t_min).passes_through_interval(interval):
-                if cold not in n_c:
-                    n_c.append(cold)
+    u_ijk = dict([((i, j, k), min(float(sum(sigma[i, l] for l in intervals if intervals.index(l) <= intervals.index(k))), delta[j, k])) for i in hots for j in colds for k in intervals])
+    u_ijkl = dict([((i, k, j, l), min(sigma[i, k], delta[j, l])) for i in hots for j in colds for k in intervals for l in intervals])
     # max demand and max supply for M-5
     max_demand: float = max(network.demands.values())
     max_supply: float = max(network.heats.values())
@@ -183,7 +167,7 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
 
     # def integer_cuts_y(model):
     #     if model_selected == "M5":
-    #         return sum(model.y_ij[i, j] for i in hots for j in colds) <= len(n_h) + len(n_c) - 1
+    #         return sum(model.y_ij[i, j] for i in hots for j in colds) <= len(hots) + len(colds) - 1
     #     else:
     #         return Constraint.Skip
     # model_to_solve.integer_cuts_y = Constraint(rule=integer_cuts_y)
@@ -216,6 +200,9 @@ def print_matches_transshipment(network: Network, model: ConcreteModel) -> None:
                         print(f'{h.name} with {c.name} - q = {sum(value(model.q_ijk[h, c, t]) for t in network.T):.2f}')
             except KeyError:
                 pass
+    # print(f'- Temperature intervals in this sub network:')
+    # for k in network.T:
+    #     print(f'{network.T.index(k)} - {k}')
 
 
 def print_exchanger_details_transshipment(network: Network, model: ConcreteModel) -> None:

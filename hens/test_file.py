@@ -23,7 +23,7 @@ if __name__ == '__main__':
         min_up_test: MinUtilityProblem = MinUtilityProblem.generate_from_data(problems[0])
     # min_up_test.plot_composite_diagram()
     # min_up_test.plot_grand_composite_curve()
-    sigma_HU, delta_HU, pinch_interval = solve_min_utility(min_up_test, debug=True)
+    sigma_HU, delta_HU, pinch_interval = solve_min_utility(min_up_test, debug=False)
 
     no_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU)
     _, no_pinch_model = solve_transshipment_model(no_pinch_network, log=False, model_selected=model_selected)
