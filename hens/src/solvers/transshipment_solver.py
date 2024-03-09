@@ -5,15 +5,14 @@ Include model M-1 to M-5, selected by parameter model_selected
 """
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, Binary, value
 from time import time
-from hens import Network, log_mean_temperature_diff, Stream
+from hens import Network, log_mean_temperature_diff, Stream, Utility, TemperatureInterval
 
 
-def solve_transshipment_model(network: Network, greedy: bool = False, model_selected: str = "M1", log: bool = False):
+def solve_transshipment_model(network: Network, model_selected: str = "M1", log: bool = False):
     """
     Solve the heat exchanger network synthesis using transshipment model listed in Yang (2015)
 
     :param network: the problem network
-    :param greedy: weather using greedy U_ij or not
     :param model_selected: the model to be used to solve the network problem - ["M1" to "M5"]
     :param log: weather show logging and save to solver.log file
 
@@ -27,7 +26,6 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
     print(f"The model to be used is {network.model}")
     # declaring model
     model_to_solve: ConcreteModel = ConcreteModel(name="MIN_MATCHES_TRANSSHIPMENT")
-
     # declaring model inputs
     intervals = network.T  # temperature intervals
     diff_t_min = network.diff_t_min
@@ -37,15 +35,23 @@ def solve_transshipment_model(network: Network, greedy: bool = False, model_sele
     delta = network.deltas  # heat demand per cold stream per interval
     p_ij = network.P  # stream exchange permission
     p_ijk = network.Pk  # stream exchange in interval permission
-    if not greedy:
-        u_ij = dict([((i, j), min(float(sum(sigma[i, k] for k in intervals)), float(sum(delta[j, k] for k in intervals)), max(min(i.FCp, j.FCp)*(i.interval.t_max - j.interval.t_min), 0.0))) for i in hots for j in colds if i.__class__ == Stream and j.__class__ == Stream])
-    else:
-        u_ij = network.U_greedy
-    # u_ijk = network.u_ijk
-    # u_ijkl = network.u_ijkl
+    # determine the upper bound heat supply and heat demand
+    u_ij: dict[tuple[Stream, Stream], float] = {}
+    for i in hots:
+        for j in colds:
+            if i.__class__ == Stream and j.__class__ == Stream:
+                u_ij[i, j] = min(float(sum(sigma[i, k] for k in intervals)), float(sum(delta[j, k] for k in intervals)), max(min(i.FCp, j.FCp)*(i.interval.t_max - j.interval.t_min), 0.0))
+            elif i.__class__ == Stream and j.__class__ == Utility:
+                u_ij[i, j] = float(sum(sigma[i, k] for k in intervals))
+            elif i.__class__ == Utility and j.__class__ == Stream:
+                u_ij[i, j] = float(sum(delta[j, k] for k in intervals))
+            else:
+                u_ij[i, j] = 0
     # update a tighter upper bound (Gundersen et al. (1997)
-    u_ijk = dict([((i, j, k), min(float(sum(sigma[i, l] for l in intervals if intervals.index(l) <= intervals.index(k))), delta[j, k])) for i in hots for j in colds for k in intervals])
-    u_ijkl = dict([((i, k, j, l), min(sigma[i, k], delta[j, l])) for i in hots for j in colds for k in intervals for l in intervals])
+    # U_i,j,k for Model-3 and Model-5
+    u_ijk: dict[tuple[Stream, Stream, TemperatureInterval], float] = dict([((i, j, k), min(float(sum(sigma[i, l] for l in intervals if intervals.index(l) <= intervals.index(k))), delta[j, k])) for i in hots for j in colds for k in intervals])
+    # U_i,k,j,l for Model-4
+    u_ijkl: dict[tuple[Stream, TemperatureInterval, Stream, TemperatureInterval], float] = dict([((i, k, j, l), min(sigma[i, k], delta[j, l])) for i in hots for j in colds for k in intervals for l in intervals])
     # max demand and max supply for M-5
     max_demand: float = max(network.demands.values())
     max_supply: float = max(network.heats.values())
