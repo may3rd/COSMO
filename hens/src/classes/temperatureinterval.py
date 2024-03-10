@@ -36,8 +36,8 @@ class TemperatureInterval:
         # otherwise it is contained
         return True
 
-    def shifted(self, shift) -> Any:
-        return TemperatureInterval(self.t_max + shift, self.t_min + shift)
+    def shifted(self, shifted_temperature) -> Any:
+        return TemperatureInterval(self.t_max + shifted_temperature, self.t_min + shifted_temperature)
 
     @staticmethod
     def common_interval(interval_1, interval_2) -> Any:

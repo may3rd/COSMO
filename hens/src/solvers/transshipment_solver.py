@@ -10,12 +10,13 @@ from hens import Network, Stream, Utility, TemperatureInterval
 from typing import Union
 
 
-def solve_transshipment_model(network: Network, model_selected: str = "M1", log_file: bool = False):
+def solve_transshipment_model(network: Network, model_selected: str = "M1", alpha_w: float = 25, log_file: bool = False):
     """
     Solve the heat exchanger network synthesis using transshipment model listed in Yang (2015)
 
     :param network: the problem network
     :param model_selected: the model to be used to solve the network problem - ["M1" to "M5"]
+    :param alpha_w: weight factor for model-6
     :param log_file: weather show logging and save to solver.log file
 
     :return:
@@ -75,7 +76,7 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log_
                     w_ij[i, j] = u_ij[i, j] / diff_t_ij
                 else:
                     w_ij[i, j] = 0
-    if model_selected == "M5":
+    if model_selected == ["M5", "M6"]:
         # max demand and max supply for M-5
         heats: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = dict([((i, k), sigma[i, k]) for i in hots for k in intervals])
         demands: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = dict([((j, k), delta[j, k]) for j in colds for k in intervals])
@@ -96,6 +97,8 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log_
         """
         if model_selected == "M2":
             return sum(model.y_ij[i, j] * w_ij[i, j] for i in hots for j in colds)
+        if model_selected == "M6":
+            return sum(model.y_ij[i, j] for i in hots for j in colds) * alpha_w + sum(model.q_ijk[m, j, k] * m.cost for m in hots for j in colds for k in intervals if m.__class__ == Utility) + sum(model.q_ijk[i, n, k] * n.cost for i in hots for n in colds for k in intervals if n.__class__ == Utility)
         else:
             return sum(model.y_ij[i, j] for i in hots for j in colds)
     model_to_solve.obj = Objective(rule=matches_min_rule)
@@ -146,14 +149,14 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log_
 
     # big-M restriction
     def big_matrix_rule(model, i, j):
-        if model_selected in ["M3", "M4", "M5"]:
+        if model_selected in ["M3", "M4", "M5", "M6"]:
             return Constraint.Skip
         else:
             return sum(model.q_ijk[i, j, k] for k in intervals) <= u_ij[i, j] * model.y_ij[i, j]
     model_to_solve.big_m_constraint = Constraint(hots, colds, rule=big_matrix_rule)
 
     def big_matrix_rules1(model, i, j, k):
-        if model_selected in ["M3", "M5"]:
+        if model_selected in ["M3", "M5", "M6"]:
             return model.q_ijk[i, j, k] <= u_ijk[i, j, k] * model.y_ij[i, j]
         else:
             return Constraint.Skip
@@ -167,14 +170,14 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log_
     model_to_solve.big_m_constraint3 = Constraint(hots, colds, intervals, intervals, rule=big_matrix_rules2)
 
     def integer_cuts_h(model, i):
-        if model_selected == "M5":
+        if model_selected == ["M5", "M6"]:
             return sum(model.y_ij[i, j] for j in colds) >= sum(sigma[i, k] for k in intervals) / max_demand
         else:
             return Constraint.Skip
     model_to_solve.integer_cuts_h = Constraint(hots, rule=integer_cuts_h)
 
     def integer_cuts_c(model, j):
-        if model_selected == "M5":
+        if model_selected == ["M5", "M6"]:
             return sum(model.y_ij[i, j] for i in hots) >= sum(delta[j, k] for k in intervals) / max_supply
         else:
             return Constraint.Skip

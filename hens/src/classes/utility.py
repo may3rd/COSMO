@@ -13,7 +13,7 @@ class Utility(ProcessStream):
         self.cost: float = cost
 
     def __str__(self) -> str:
-        return f'{self.name} {self.t_in} {self.t_out} {self.cost}'
+        return f'{self.name} {self.t_in:.2f} {self.t_out:.2f} {self.cost:.2f}'
 
     def __repr__(self) -> str:
         return str(self)

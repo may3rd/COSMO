@@ -54,8 +54,8 @@ class MinUtilityProblem:
         self.grand_composite_t: list[float] = []
         self.unfeasible_heat_cascade: list[dict[str, float]] = []
         self.heat_cascade: list[dict[str, float]] = []
-        self.demanded_hot_utility: float = 0
-        self.demanded_cold_utility: float = 0
+        self.optimal_hot_utility: float = 0
+        self.optimal_cold_utility: float = 0
         self.pinch_temperature: float = 0
         # ---------------------------------------------------------
         # Original methods
@@ -188,14 +188,14 @@ class MinUtilityProblem:
                 pinch_interval = i
             self.unfeasible_heat_cascade.append(row)
             i += 1
-        self.demanded_hot_utility = -lowest_exit_h
-        exit_h = self.demanded_hot_utility
+        self.optimal_hot_utility = -lowest_exit_h
+        exit_h = self.optimal_hot_utility
         for interval in self.intervals:
             row = {'deltaH': self.problem_table[interval]}
             exit_h += row['deltaH']
             row['exitH'] = exit_h
             self.heat_cascade.append(row)
-        self.demanded_cold_utility = exit_h
+        self.optimal_cold_utility = exit_h
         if pinch_interval > 0:
             self.pinch_temperature = self.intervals[pinch_interval].t_min
 
@@ -222,7 +222,7 @@ class MinUtilityProblem:
                 total_h_hot += delta_h_hot[i - 1]
                 self.hot_composite_h.append(total_h_hot)
                 self.hot_composite_t.append(temperatures[i])
-        total_h_cold: float = self.demanded_cold_utility
+        total_h_cold: float = self.optimal_cold_utility
         self.cold_composite_h.append(total_h_cold)
         self.cold_composite_t.append(temperatures[0])
         for i in range(1, len(temperatures)):
@@ -232,7 +232,7 @@ class MinUtilityProblem:
                 self.cold_composite_t.append(temperatures[i])
 
     def __init_grand_composite_curve(self) -> None:
-        self.grand_composite_h.append(self.demanded_hot_utility)
+        self.grand_composite_h.append(self.optimal_hot_utility)
         self.grand_composite_t.append(self.temperatures[0])
         for i in range(1, len(self.temperatures)):
             self.grand_composite_h.append(self.heat_cascade[i - 1]['exitH'])
@@ -257,8 +257,8 @@ class MinUtilityProblem:
         self.grand_composite_t = []
         self.unfeasible_heat_cascade = []
         self.heat_cascade = []
-        self.demanded_hot_utility = 0
-        self.demanded_cold_utility = 0
+        self.optimal_hot_utility = 0
+        self.optimal_cold_utility = 0
         self.pinch_temperature = 0
         self.__init_temperatures(self.hot_streams + self.cold_streams, self.hot_utilities + self.cold_utilities)
         self.__init_heats()
@@ -378,13 +378,13 @@ class MinUtilityProblem:
         return self.__str__()
 
     def print_temperature_interval(self) -> None:
-        for T in self.intervals:
-            print(f'{T}, {self.problem_table[T]:.2f}')
+        for k in self.intervals:
+            print(f'{k}, {self.problem_table[k]:.2f}')
 
     def print_minimum_demanded_utility(self) -> None:
-        print(f'Pinch temperature is {self.pinch_temperature:.2f}')
-        print(f'Demanded Hot Utility is {self.demanded_hot_utility:.2f}')
-        print(f'Demanded Cold Utility is {self.demanded_cold_utility:.2f}')
+        print(f'Pinch temperature (hot) is {self.pinch_temperature:.2f}')
+        print(f'Optimal Hot Utility is {self.optimal_hot_utility:.2f}')
+        print(f'Optimal Cold Utility is {self.optimal_cold_utility:.2f}')
 
     def get_hot_stream(self, name: str) -> Union[Stream, None]:
         for h in self.hot_streams:

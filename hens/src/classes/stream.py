@@ -14,7 +14,7 @@ class Stream(ProcessStream):
         self.heat: float = abs((t_out - t_in) * f_cp)
 
     def __str__(self) -> str:
-        return f'{self.name} {self.t_in} {self.t_out} {self.heat}'
+        return f'{self.name} {self.t_in:.2f} {self.t_out:.2f} {self.FCp:.2f} {self.heat:.2f}'
 
     def __repr__(self) -> str:
         return str(self)
