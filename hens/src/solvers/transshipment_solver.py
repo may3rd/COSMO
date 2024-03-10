@@ -5,16 +5,18 @@ Include model M-1 to M-5, selected by parameter model_selected
 """
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, Binary, value
 from time import time
-from hens import Network, log_mean_temperature_diff, Stream, Utility, TemperatureInterval
+from math import log
+from hens import Network, Stream, Utility, TemperatureInterval
+from typing import Union
 
 
-def solve_transshipment_model(network: Network, model_selected: str = "M1", log: bool = False):
+def solve_transshipment_model(network: Network, model_selected: str = "M1", log_file: bool = False):
     """
     Solve the heat exchanger network synthesis using transshipment model listed in Yang (2015)
 
     :param network: the problem network
     :param model_selected: the model to be used to solve the network problem - ["M1" to "M5"]
-    :param log: weather show logging and save to solver.log file
+    :param log_file: weather show logging and save to solver.log file
 
     :return:
     """
@@ -31,12 +33,12 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log:
     diff_t_min = network.diff_t_min
     hots = sorted(list(set([i for i in network.H for k in intervals if i.interval.passes_through_interval(k)])), key=lambda x: x.name)  # hot streams including utilities
     colds = sorted(list(set(j for j in network.C for k in intervals if j.interval.shifted(diff_t_min).passes_through_interval(k))), key=lambda x: x.name)  # cold streams including utilities
-    sigma = network.sigmas  # heat supply per hot stream per interval
-    delta = network.deltas  # heat demand per cold stream per interval
-    p_ij = network.P  # stream exchange permission
-    p_ijk = network.Pk  # stream exchange in interval permission
+    sigma: dict[tuple[Stream, TemperatureInterval], float] = network.sigmas  # heat supply per hot stream per interval
+    delta: dict[tuple[Stream, TemperatureInterval], float] = network.deltas  # heat demand per cold stream per interval
+    p_ij: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], int] = network.P  # stream exchange permission
+    # p_ijk = network.Pk  # stream exchange in interval permission
     # determine the upper bound heat supply and heat demand
-    u_ij: dict[tuple[Stream, Stream], float] = {}
+    u_ij: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], float] = {}
     for i in hots:
         for j in colds:
             if i.__class__ == Stream and j.__class__ == Stream:
@@ -49,12 +51,36 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log:
                 u_ij[i, j] = 0
     # update a tighter upper bound (Gundersen et al. (1997)
     # U_i,j,k for Model-3 and Model-5
-    u_ijk: dict[tuple[Stream, Stream, TemperatureInterval], float] = dict([((i, j, k), min(float(sum(sigma[i, l] for l in intervals if intervals.index(l) <= intervals.index(k))), delta[j, k])) for i in hots for j in colds for k in intervals])
+    u_ijk: dict[tuple[Union[Stream, Utility], Union[Stream, Utility], TemperatureInterval], float] = dict([((i, j, k), min(float(sum(sigma[i, l] for l in intervals if intervals.index(l) <= intervals.index(k))), delta[j, k])) for i in hots for j in colds for k in intervals])
     # U_i,k,j,l for Model-4
-    u_ijkl: dict[tuple[Stream, TemperatureInterval, Stream, TemperatureInterval], float] = dict([((i, k, j, l), min(sigma[i, k], delta[j, l])) for i in hots for j in colds for k in intervals for l in intervals])
-    # max demand and max supply for M-5
-    max_demand: float = max(network.demands.values())
-    max_supply: float = max(network.heats.values())
+    u_ijkl: dict[tuple[Union[Stream, Utility], TemperatureInterval, Union[Stream, Utility], TemperatureInterval], float] = dict([((i, k, j, l), min(sigma[i, k], delta[j, l])) for i in hots for j in colds for k in intervals for l in intervals])
+    if model_selected == "M2":
+        # determining weight for M-2
+        w_ij: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], float] = {}
+        t_k_max: float = intervals[0].t_max
+        t_k_min: float = intervals[-1].t_min
+        for i in hots:
+            for j in colds:
+                if u_ij[i, j] > 0:
+                    t_i_in = min(i.interval.t_max, t_k_max)
+                    t_i_out = min(i.interval.t_min, t_k_min)
+                    t_j_in = min(j.interval.t_min, t_k_min)
+                    t_j_out = min(j.interval.t_max, t_k_max)
+                    diff_t_in = t_i_in - min(t_j_out, t_j_in - diff_t_min)
+                    diff_t_out = max(t_i_out, t_i_in + diff_t_min) - t_j_in
+                    if diff_t_in == diff_t_out:
+                        diff_t_ij = diff_t_in
+                    else:
+                        diff_t_ij = (diff_t_out - diff_t_in) / log(diff_t_out / diff_t_in)
+                    w_ij[i, j] = u_ij[i, j] / diff_t_ij
+                else:
+                    w_ij[i, j] = 0
+    if model_selected == "M5":
+        # max demand and max supply for M-5
+        heats: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = dict([((i, k), sigma[i, k]) for i in hots for k in intervals])
+        demands: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = dict([((j, k), delta[j, k]) for j in colds for k in intervals])
+        max_supply: float = max(sum(heats[i, k] for k in intervals) for i in hots)
+        max_demand: float = max(sum(demands[j, k] for k in intervals) for j in colds)
     # declaring model variables
     model_to_solve.q_ijk = Var(hots, colds, intervals, within=NonNegativeReals)
     model_to_solve.q_ijkl = Var(hots, intervals, colds, intervals, within=NonNegativeReals)
@@ -69,24 +95,7 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log:
         objective function: minimize the number of matches between hot stream and cold stream, y_ij
         """
         if model_selected == "M2":
-            # apply weight factor
-            # w_ij = u_ij / LMTD
-            cost_objective: float = 0
-            t_hot: list[float] = []
-            t_cold: list[float] = []
-            for h in hots:
-                for c in colds:
-                    for t in intervals:
-                        if p_ijk[(h, c, t)]:
-                            t_hot.append(t.t_min)
-                            t_hot.append(t.t_max)
-                            t_cold.append(t.t_min - diff_t_min)
-                            t_cold.append(t.t_max - diff_t_min)
-                    if len(t_hot) == 0 or len(t_cold) == 0:
-                        cost_objective += model.y_ij[h, c]
-                    else:
-                        cost_objective += model.y_ij[h, c] * u_ij[h, c] / log_mean_temperature_diff(max(t_hot), min(t_hot), min(t_cold), max(t_cold))
-            return cost_objective
+            return sum(model.y_ij[h, c] * w_ij[h, c] for h in hots for c in colds)
         else:
             return sum(model.y_ij[h, c] for h in hots for c in colds)
     model_to_solve.obj = Objective(rule=matches_min_rule)
@@ -184,7 +193,7 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", log:
     # solving model
     s_time = time()
     solver: SolverFactory = SolverFactory("glpk")
-    if log:
+    if log_file:
         results = solver.solve(model_to_solve, logfile="solver.log", tee=True)
     else:
         results = solver.solve(model_to_solve)

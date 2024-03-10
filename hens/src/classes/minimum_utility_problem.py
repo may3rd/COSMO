@@ -42,8 +42,8 @@ class MinUtilityProblem:
         # appended by Maetee to display composite curve
         # ---------------------------------------------------------
         # heat exchanger match between hot stream h and cold stream c is permitted
-        self.accepted_h_c: dict[(Stream, Stream), int] = {}
-        self.accepted_h_c_k: dict[(Stream, Stream, TemperatureInterval), int] = {}
+        self.accepted_h_c: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], int] = {}
+        self.accepted_h_c_k: dict[tuple[Union[Stream, Utility], Union[Stream, Utility], TemperatureInterval], int] = {}
         # properties for determination of pinch temperature and composite diagram
         self.problem_table: dict[TemperatureInterval, float] = {}
         self.hot_composite_h: list[float] = []
@@ -163,7 +163,7 @@ class MinUtilityProblem:
         # not transfer hot utility to cold utility
         for H in self.hot_utilities:
             for C in self.cold_utilities:
-                self.accepted_h_c[(H, C)] = 0
+                self.accepted_h_c[H, C] = 0
 
     def __init_accepted_h_c_k(self) -> None:
         for i in self.hot_streams + self.hot_utilities:
