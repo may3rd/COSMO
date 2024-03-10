@@ -12,35 +12,36 @@
 #    at each temperature interval
 from .temperatureinterval import TemperatureInterval
 from .stream import Stream
+from .utility import Utility
 from .minimum_utility_problem import MinUtilityProblem
 from ..solvers.greedy_max_heat import greedy_heat
 from ..solvers.min_utility_solver import solve_min_utility
-from typing import Any
+from typing import Any, Union
 
 
 class Network:
 
     def __init__(self,
                  min_utility_instance: MinUtilityProblem,
-                 utility_sigmas: dict[tuple[Stream, TemperatureInterval], float],
-                 utility_deltas: dict[tuple[Stream, TemperatureInterval], float],
+                 utility_sigmas: dict[tuple[Union[Stream, Utility], TemperatureInterval], float],
+                 utility_deltas: dict[tuple[Union[Stream, Utility], TemperatureInterval], float],
                  pinch_interval: int = 0, below_pinch: bool = False) -> None:
-        self.H: list[Stream] = min_utility_instance.hot_streams + min_utility_instance.hot_utilities
-        self.C: list[Stream] = min_utility_instance.cold_streams + min_utility_instance.cold_utilities
+        self.H: list[Union[Stream, Utility]] = min_utility_instance.hot_streams + min_utility_instance.hot_utilities
+        self.C: list[Union[Stream, Utility]] = min_utility_instance.cold_streams + min_utility_instance.cold_utilities
         self.T: list[TemperatureInterval] = min_utility_instance.intervals
         self.PinchInterval: int = pinch_interval  # index of pinch interval, default is 0
         self.below_pinch: bool = below_pinch
-        self.P = min_utility_instance.accepted_h_c
-        self.Pk = min_utility_instance.accepted_h_c_k
+        self.P: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], int] = min_utility_instance.accepted_h_c
+        self.Pk: dict[tuple[Union[Stream, Utility], Union[Stream, Utility], TemperatureInterval], int] = min_utility_instance.accepted_h_c_k
         self.diff_t_min: float = min_utility_instance.diff_t_min
-        self.sigmas: dict[tuple[Stream, TemperatureInterval], float] = min_utility_instance.sigmas
-        self.deltas: dict[tuple[Stream, TemperatureInterval], float] = min_utility_instance.deltas
-        self.heats: dict[Stream, float] = {}   # hi
-        self.demands: dict[Stream, float] = {}  # cj
-        self.U: dict[(Any, Any), float] = {}
-        self.U_greedy: dict[(Any, Any), float] = {}
-        self.u_ijk: dict[tuple[Stream, Stream, TemperatureInterval], float] = {}
-        self.u_ijkl: dict[tuple[Stream, TemperatureInterval, Stream, TemperatureInterval], float] = {}
+        self.sigmas: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = min_utility_instance.sigmas
+        self.deltas: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = min_utility_instance.deltas
+        self.heats: dict[Union[Stream, Utility], float] = {}   # hi
+        self.demands: dict[Union[Stream, Utility], float] = {}  # cj
+        self.U: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], float] = {}
+        self.U_greedy: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], float] = {}
+        self.u_ijk: dict[tuple[Union[Stream, Utility], Union[Stream, Utility], TemperatureInterval], float] = {}
+        self.u_ijkl: dict[tuple[Union[Stream, Utility], TemperatureInterval, Union[Stream, Utility], TemperatureInterval], float] = {}
         self.model: str = ''
         self.__update_sigmas(utility_sigmas)
         self.__update_deltas(utility_deltas)
@@ -59,11 +60,11 @@ class Network:
             else:
                 self.T = self.T[0:self.PinchInterval]
 
-    def __update_sigmas(self, new_sigmas: dict[tuple[Stream, TemperatureInterval], float]) -> None:
+    def __update_sigmas(self, new_sigmas: dict[tuple[Union[Stream, Utility], TemperatureInterval], float]) -> None:
         for key in new_sigmas.keys():
             self.sigmas[key] = new_sigmas[key]
     
-    def __update_deltas(self, new_deltas: dict[tuple[Stream, TemperatureInterval], float]) -> None:
+    def __update_deltas(self, new_deltas: dict[tuple[Union[Stream, Utility], TemperatureInterval], float]) -> None:
         for key in new_deltas.keys():
             self.deltas[key] = new_deltas[key]
 

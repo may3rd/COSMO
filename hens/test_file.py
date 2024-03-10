@@ -27,18 +27,18 @@ if __name__ == '__main__':
         sigma_HU, delta_HU, pinch_interval = solve_min_utility(min_up_test, debug=False)
 
         no_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU)
-        _, no_pinch_model = solve_transshipment_model(no_pinch_network, log=False, model_selected=model_selected)
+        _, no_pinch_model = solve_transshipment_model(no_pinch_network, log_file=False, model_selected=model_selected)
         print_matches_transshipment(no_pinch_network, no_pinch_model)
 
         if pinch_interval > 0:
             print("---- Above Pinch ----")
             above_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=False)
-            _, above_pinch_model = solve_transshipment_model(above_pinch_network, log=False, model_selected=model_selected)
+            _, above_pinch_model = solve_transshipment_model(above_pinch_network, log_file=False, model_selected=model_selected)
             print_matches_transshipment(above_pinch_network, above_pinch_model)
 
             print("---- Below Pinch ----")
             below_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=True)
-            _, below_pinch_model = solve_transshipment_model(below_pinch_network, log=False, model_selected=model_selected)
+            _, below_pinch_model = solve_transshipment_model(below_pinch_network, log_file=False, model_selected=model_selected)
             print_matches_transshipment(below_pinch_network, below_pinch_model)
             # print_exchanger_details_transshipment(below_pinch_network, below_pinch_model)
 
