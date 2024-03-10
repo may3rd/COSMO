@@ -108,7 +108,6 @@ def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False):
                 break
     pinch_hots_pass: bool = False
     pinch_colds_pass: bool = False
-
     for hot in problem_instance.hot_streams:
         pinch_hots_pass = intervals[pinch_interval].passes_through_interval(hot.interval)
         if pinch_hots_pass:
