@@ -127,13 +127,19 @@ class Network:
             print(f'{cold_stream.name} - {self.demands[cold_stream]:.2f}')
 
     @staticmethod
-    def generate_from_csv(csv_path: str, plot_composite: bool = False, plot_grand_composite: bool = False) -> Any:
+    def generate_from_csv(csv_path: str,
+                          create_with_subnetwork: bool = False,
+                          plot_composite: bool = False,
+                          plot_grand_composite: bool = False,
+                          debug: bool = False) -> Any:
         """
         Generate a network from a csv file and return it as a Network object.
 
         :param csv_path: csv file path
+        :param create_with_subnetwork: create with subnetwork flag
         :param plot_composite: plot composite flag
         :param plot_grand_composite: plot grand composite flag
+        :param debug: debug flag
         """
         min_obj: MinUtilityProblem = MinUtilityProblem.generate_from_csv(csv_path)
 
@@ -143,5 +149,9 @@ class Network:
         if plot_grand_composite:
             min_obj.plot_grand_composite_curve()
 
-        (sigma_HU, delta_HU, _) = solve_min_utility(min_obj, debug=False)
-        return Network(min_obj, sigma_HU, delta_HU)
+        sigma_hu, delta_hu, pinch_interval = solve_min_utility(min_obj, debug=debug)
+
+        if create_with_subnetwork and pinch_interval > 0:
+            return Network(min_obj, sigma_hu, delta_hu, pinch_interval, below_pinch=False), Network(min_obj, sigma_hu, delta_hu, pinch_interval, below_pinch=True)
+        else:
+            return Network(min_obj, sigma_hu, delta_hu), None

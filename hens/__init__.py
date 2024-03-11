@@ -17,6 +17,7 @@ Solvers
 """
 
 from .src.classes.minimum_utility_problem import MinUtilityProblem
+from .src.classes.matching import MatchingHEX
 from .src.classes.network import Network
 from .src.classes.processstream import ProcessStream
 from .src.classes.stream import Stream
@@ -27,9 +28,10 @@ from .src.solvers.greedy_max_heat import greedy_heat, greedy_heat_2
 from .src.solvers.greedy_minmax_delta import greedy_min_delta
 from .src.solvers.min_utility_solver import solve_min_utility
 from .src.solvers.transport_solver import solve_transport_model, print_matches_transport
-from .src.solvers.transshipment_solver import solve_transshipment_model, print_matches_transshipment, print_exchanger_details_transshipment
+from .src.solvers.transshipment_solver import solve_transshipment_model, print_matches_transshipment
 
 __all__ = ['MinUtilityProblem',
+           'MatchingHEX',
            'Network',
            'ProcessStream',
            'Stream',
@@ -40,4 +42,4 @@ __all__ = ['MinUtilityProblem',
            'solve_min_utility',
            'log_mean_temperature_diff',
            'solve_transport_model', 'print_matches_transshipment',
-           'solve_transshipment_model', 'print_matches_transport', 'print_exchanger_details_transshipment']
+           'solve_transshipment_model', 'print_matches_transport']

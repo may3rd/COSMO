@@ -6,11 +6,14 @@ Include model M-1 to M-5, selected by parameter model_selected
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, Binary, value
 from time import time
 from math import log
-from hens import Network, Stream, Utility, TemperatureInterval
-from typing import Union
+from hens import Network, Stream, Utility, TemperatureInterval, MatchingHEX
+from typing import Union, Any
 
 
-def solve_transshipment_model(network: Network, model_selected: str = "M1", alpha_w: float = 25, log_file: bool = False):
+def solve_transshipment_model(network: Network,
+                              model_selected: str = "M1",
+                              alpha_w: float = 25,
+                              log_file: bool = False) -> list[MatchingHEX]:
     """
     Solve the heat exchanger network synthesis using transshipment model listed in Yang (2015)
 
@@ -32,8 +35,10 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", alph
     # declaring model inputs
     intervals = network.T  # temperature intervals
     diff_t_min = network.diff_t_min
-    hots = sorted(list(set([i for i in network.H for k in intervals if i.interval.passes_through_interval(k)])), key=lambda x: x.name)  # hot streams including utilities
-    colds = sorted(list(set(j for j in network.C for k in intervals if j.interval.shifted(diff_t_min).passes_through_interval(k))), key=lambda x: x.name)  # cold streams including utilities
+    hots = sorted(list(set([i for i in network.H for k in intervals if i.interval.passes_through_interval(k)])),
+                  key=lambda x: x.name)
+    colds = sorted(list(set(j for j in network.C for k in intervals
+                            if j.interval.shifted(diff_t_min).passes_through_interval(k))), key=lambda x: x.name)
     sigma: dict[tuple[Stream, TemperatureInterval], float] = network.sigmas  # heat supply per hot stream per interval
     delta: dict[tuple[Stream, TemperatureInterval], float] = network.deltas  # heat demand per cold stream per interval
     p_ij: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], int] = network.P  # stream exchange permission
@@ -43,7 +48,8 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", alph
     for i in hots:
         for j in colds:
             if i.__class__ == Stream and j.__class__ == Stream:
-                u_ij[i, j] = min(float(sum(sigma[i, k] for k in intervals)), float(sum(delta[j, k] for k in intervals)), max(min(i.FCp, j.FCp)*(i.interval.t_max - j.interval.t_min), 0.0))
+                u_ij[i, j] = min(float(sum(sigma[i, k] for k in intervals)), float(sum(delta[j, k] for k in intervals)),
+                                 max(min(i.FCp, j.FCp)*(i.interval.t_max - j.interval.t_min), 0.0))
             elif i.__class__ == Stream and j.__class__ == Utility:
                 u_ij[i, j] = float(sum(sigma[i, k] for k in intervals))
             elif i.__class__ == Utility and j.__class__ == Stream:
@@ -52,9 +58,11 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", alph
                 u_ij[i, j] = 0
     # update a tighter upper bound (Gundersen et al. (1997)
     # U_i,j,k for Model-3 and Model-5
-    u_ijk: dict[tuple[Union[Stream, Utility], Union[Stream, Utility], TemperatureInterval], float] = dict([((i, j, k), min(float(sum(sigma[i, l] for l in intervals if intervals.index(l) <= intervals.index(k))), delta[j, k])) for i in hots for j in colds for k in intervals])
+    u_ijk = dict([((i, j, k), min(float(sum(sigma[i, l] for l in intervals if intervals.index(l) <= intervals.index(k))),
+                                  delta[j, k])) for i in hots for j in colds for k in intervals])
     # U_i,k,j,l for Model-4
-    u_ijkl: dict[tuple[Union[Stream, Utility], TemperatureInterval, Union[Stream, Utility], TemperatureInterval], float] = dict([((i, k, j, l), min(sigma[i, k], delta[j, l])) for i in hots for j in colds for k in intervals for l in intervals])
+    u_ijkl = dict([((i, k, j, l), min(sigma[i, k], delta[j, l])) for i in hots for j in colds
+                   for k in intervals for l in intervals])
     if model_selected == "M2":
         # determining weight for M-2
         w_ij: dict[tuple[Union[Stream, Utility], Union[Stream, Utility]], float] = {}
@@ -78,8 +86,8 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", alph
                     w_ij[i, j] = 0
     if model_selected == ["M5", "M6"]:
         # max demand and max supply for M-5
-        heats: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = dict([((i, k), sigma[i, k]) for i in hots for k in intervals])
-        demands: dict[tuple[Union[Stream, Utility], TemperatureInterval], float] = dict([((j, k), delta[j, k]) for j in colds for k in intervals])
+        heats = dict([((i, k), sigma[i, k]) for i in hots for k in intervals])
+        demands = dict([((j, k), delta[j, k]) for j in colds for k in intervals])
         max_supply: float = max(sum(heats[i, k] for k in intervals) for i in hots)
         max_demand: float = max(sum(demands[j, k] for k in intervals) for j in colds)
     # declaring model variables
@@ -98,7 +106,9 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", alph
         if model_selected == "M2":
             return sum(model.y_ij[i, j] * w_ij[i, j] for i in hots for j in colds)
         if model_selected == "M6":
-            return sum(model.y_ij[i, j] for i in hots for j in colds) * alpha_w + sum(model.q_ijk[m, j, k] * m.cost for m in hots for j in colds for k in intervals if m.__class__ == Utility) + sum(model.q_ijk[i, n, k] * n.cost for i in hots for n in colds for k in intervals if n.__class__ == Utility)
+            return (sum(model.y_ij[i, j] for i in hots for j in colds) * alpha_w +
+                    sum(model.q_ijk[m, j, k] * m.cost for m in hots for j in colds for k in intervals if m.__class__ == Utility) +
+                    sum(model.q_ijk[i, n, k] * n.cost for i in hots for n in colds for k in intervals if n.__class__ == Utility))
         else:
             return sum(model.y_ij[i, j] for i in hots for j in colds)
     model_to_solve.obj = Objective(rule=matches_min_rule)
@@ -197,59 +207,47 @@ def solve_transshipment_model(network: Network, model_selected: str = "M1", alph
     s_time = time()
     solver: SolverFactory = SolverFactory("glpk")
     if log_file:
-        results = solver.solve(model_to_solve, logfile="solver.log", tee=True)
+        solver.solve(model_to_solve, logfile="solver.log", tee=True)
     else:
-        results = solver.solve(model_to_solve)
+        solver.solve(model_to_solve)
     sum_y = sum([value(model_to_solve.y_ij[h, c]) for h in hots for c in colds])
     print("HS: {}, CS: {}, TI: {}".format(len(hots), len(colds), len(intervals)))
     print("Objective: y = {}, in {} seconds".format(sum_y, round(time() - s_time, 6)))
-    return results, model_to_solve
-
-
-def print_matches_transshipment(network: Network, model: ConcreteModel) -> None:
-    print('------- Matching Streams ------')
-    for i in network.H:
-        for j in network.C:
-            try:
-                if value(model.y_ij[i, j]) != 0:
-                    if network.model == "M4":
-                        print(f'{i.name} with {j.name} - q = {sum(value(model.q_ijkl[i, k, j, l]) for k in network.T for l in network.T):.2f}')
-                    else:
-                        print(f'{i.name} with {j.name} - q = {sum(value(model.q_ijk[i, j, t]) for t in network.T):.2f}')
-            except KeyError:
-                pass
-    # print(f'- Temperature intervals in this subnetwork:')
-    # for k in network.T:
-    #     print(f'{network.T.index(k)} - {k}')
-
-
-def print_exchanger_details_transshipment(network: Network, model: ConcreteModel) -> None:
-    print('------- Exchanger Details Transshipment -------')
-    print(f"The solve model is {network.model}")
+    # create list of heat exchanger matching
+    hexs: list[MatchingHEX] = []
     hx_id: int = 1
-    hxs: list = []
     for i in network.H:
         for j in network.C:
             try:
-                if value(model.y_ij[i, j]) != 0:
-                    exchanger_id = f'E{hx_id}'
+                if value(model_to_solve.y_ij[i, j]) != 0:
+                    hx_name: str = f"EX-{hx_id}"
                     hx_id += 1
-                    hx_q: float = 0.0
-                    t_h: list[float] = []
-                    for k in network.T:
-                        if network.model == "M4":
-                            q = sum(value(model.q_ijkl[i, k, j, l] for l in network.T))
-                        else:
-                            q = value(model.q_ijk[i, j, k])
-                        if q > 0.0:
-                            hx_q += q
-                            if k.t_min not in t_h:
-                                t_h.append(k.t_min)
-                            if k.t_max not in t_h:
-                                t_h.append(k.t_max)
-                            t_h.sort(reverse=True)
-                            hxs.append({'exchanger_id': exchanger_id, 'hot': i, 'cold': j, 't_h': t_h, 'q': hx_q})
+                    if network.model == "M4":
+                        diff_t = network.diff_t_min
+                        q = sum(value(model_to_solve.q_ijkl[i, k, j, l]) for k in network.T for l in network.T)
+                        t_h_max: float = max(
+                            [k.t_max for k in network.T for l in network.T if value(model_to_solve.q_ijkl[i, k, j, l]) > 0])
+                        t_h_min: float = min(
+                            [k.t_min for k in network.T for l in network.T if value(model_to_solve.q_ijkl[i, k, j, l]) > 0])
+                        t_c_max: float = max([l.t_max - diff_t for k in network.T for l in network.T if
+                                              value(model_to_solve.q_ijkl[i, k, j, l]) > 0])
+                        t_c_min: float = min([l.t_min - diff_t for k in network.T for l in network.T if
+                                              value(model_to_solve.q_ijkl[i, k, j, l]) > 0])
+                        hexs.append(MatchingHEX(hot=i, cold=j, hot_interval=TemperatureInterval(t_h_max, t_h_min),
+                                                cold_interval=TemperatureInterval(t_c_max, t_c_min), duty=q,
+                                                name=hx_name))
+                    else:
+                        q = sum(value(model_to_solve.q_ijk[i, j, k]) for k in network.T)
+                        t_max: float = max([k.t_max for k in network.T if value(model_to_solve.q_ijk[i, j, k]) > 0])
+                        t_min: float = min([k.t_min for k in network.T if value(model_to_solve.q_ijk[i, j, k]) > 0])
+                        hexs.append(MatchingHEX(hot=i, cold=j, hot_interval=TemperatureInterval(t_max, t_min),
+                                                cold_interval=j.interval, duty=q, name=hx_name))
             except KeyError:
                 pass
-    for hx in hxs:
-        print(f'{hx['exchanger_id']} - q = {hx['q']}, HS={hx['hot'].name}, CS={hx['cold'].name}, T={hx['t_h']}')
+    return hexs
+
+
+def print_matches_transshipment(hexs: list[MatchingHEX]):
+    print("------- Matching Streams ------")
+    for hx in hexs:
+        print(f"{hx.hot.name} - {hx.cold.name} q = {hx.duty:.2f}")
