@@ -13,8 +13,9 @@ if __name__ == '__main__':
 #    problems += ["unbalanced5", "unbalanced8", "unbalanced10", "unbalanced15", "unbalanced17", "unbalanced20"]
 
     problems = ["14sp1"]
-    filename = 'test.csv'
+    filename = "problem1.csv"
     models = ["M1", "M2", "M3", "M4", "M5", "M6"]
+    cost = "cost"
     alpha_w = 25.0
     read_from_csv = True
 
@@ -30,17 +31,17 @@ if __name__ == '__main__':
 
         print("---- No Pinch ----")
         no_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU)
-        hexs = solve_transshipment_model(no_pinch_network, log_file=False, model_selected=model_selected, alpha_w=alpha_w)
+        hexs = solve_transshipment_model(no_pinch_network, log_file=False, model_selected=model_selected, cost_selected=cost, alpha_w=alpha_w)
         print_matches_transshipment(hexs)
 
         if pinch_interval > 0:
             print("---- Above Pinch ----")
             above_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=False)
-            ab_hexs = solve_transshipment_model(above_pinch_network, log_file=False, model_selected=model_selected, alpha_w=alpha_w)
+            ab_hexs = solve_transshipment_model(above_pinch_network, log_file=False, model_selected=model_selected, cost_selected=cost, alpha_w=alpha_w)
 
             print("---- Below Pinch ----")
             below_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=True)
-            bl_hexs = solve_transshipment_model(below_pinch_network, log_file=False, model_selected=model_selected, alpha_w=alpha_w)
+            bl_hexs = solve_transshipment_model(below_pinch_network, log_file=False, model_selected=model_selected, cost_selected=cost, alpha_w=alpha_w)
 
             print("---- Combined ----")
             print_matches_transshipment(ab_hexs + bl_hexs)

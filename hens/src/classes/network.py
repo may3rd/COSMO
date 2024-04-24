@@ -141,17 +141,19 @@ class Network:
         :param plot_grand_composite: plot grand composite flag
         :param debug: debug flag
         """
+        # create the min utility problem from the csv file
         min_obj: MinUtilityProblem = MinUtilityProblem.generate_from_csv(csv_path)
 
+        # plot the composite diagram
         if plot_composite:
             min_obj.plot_composite_diagram()
-
+        # plot the grand composite curve
         if plot_grand_composite:
             min_obj.plot_grand_composite_curve()
-
+        # solve for the min utility demand and pinch interval location
         sigma_hu, delta_hu, pinch_interval = solve_min_utility(min_obj, debug=debug)
-
+        # create the networks and return them
         if create_with_subnetwork and pinch_interval > 0:
             return Network(min_obj, sigma_hu, delta_hu, pinch_interval, below_pinch=False), Network(min_obj, sigma_hu, delta_hu, pinch_interval, below_pinch=True)
         else:
-            return Network(min_obj, sigma_hu, delta_hu), None
+            return Network(min_obj, sigma_hu, delta_hu), Network(min_obj, sigma_hu, delta_hu)

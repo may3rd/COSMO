@@ -2,16 +2,21 @@
 Change by Maetee L : may3rd@gmail.com
 By applying the model list in Chen, Grossmann, and Miller (2015).
 Include model M-1 to M-5, selected by parameter model_selected
+9 Apr 2024
+- change the cost function by parameter cost_selected ["matching", "cost"]
+    matching is the default, for minimizing the number of matches
+    cost for minimizing the cost of utility
 """
 from pyomo.environ import ConcreteModel, Var, NonNegativeReals, RangeSet, Objective, Constraint, SolverFactory, Binary, value
 from time import time
 from math import log
 from hens import Network, Stream, Utility, TemperatureInterval, MatchingHEX
-from typing import Union, Any
+from typing import Union
 
 
 def solve_transshipment_model(network: Network,
                               model_selected: str = "M1",
+                              cost_selected: str = "matching",
                               alpha_w: float = 25,
                               log_file: bool = False) -> list[MatchingHEX]:
     """
@@ -19,15 +24,22 @@ def solve_transshipment_model(network: Network,
 
     :param network: the problem network
     :param model_selected: the model to be used to solve the network problem - ["M1" to "M5"]
+    :param cost_selected: the cost function to be used to solve the network problem - ["matching" or "cost"]
     :param alpha_w: weight factor for model-6
     :param log_file: weather show logging and save to solver.log file
 
     :return:
+    list of MatchingHEX
     """
     # ensure that only one model is selected
-    if model_selected is None:
+    if model_selected is None or model_selected not in ["M1", "M2", "M3", "M4", "M5", "M6"]:
         model_selected = "M1"
 
+    # ensure that only one cost function is selected
+    if cost_selected is None or cost_selected not in ["matching", "cost"]:
+        cost_selected = "matching"
+
+    # set up the model
     network.model = model_selected
     print(f"The model to be used is {network.model}")
     # declaring model
@@ -111,7 +123,18 @@ def solve_transshipment_model(network: Network,
                     sum(model.q_ijk[i, n, k] * n.cost for i in hots for n in colds for k in intervals if n.__class__ == Utility))
         else:
             return sum(model.y_ij[i, j] for i in hots for j in colds)
-    model_to_solve.obj = Objective(rule=matches_min_rule)
+
+    def utility_cost_min_rule(model):
+        if model_selected == "M4":
+            return sum(model.q_ijkl[i, k, j, l] * i.cost for i in hots for k in intervals for j in colds for l in intervals if i.__class__ == Utility)
+        else:
+            return sum(model.q_ijk[i, j, k] * i.cost for i in hots for j in colds for k in intervals if i.__class__ == Utility)
+
+    if cost_selected == "matching":
+        model_to_solve.obj = Objective(rule=matches_min_rule)
+    elif cost_selected == "cost":
+        model_to_solve.obj = Objective(rule=utility_cost_min_rule)
+#    model_to_solve.obj = Objective(rule=matches_min_rule)
 
     # zero residual constraint
     def zero_residual_rule(model, i, r):
@@ -210,7 +233,17 @@ def solve_transshipment_model(network: Network,
         solver.solve(model_to_solve, logfile="solver.log", tee=True)
     else:
         solver.solve(model_to_solve)
-    sum_y = sum([value(model_to_solve.y_ij[h, c]) for h in hots for c in colds])
+
+    # get results
+    if cost_selected == "matching":
+        sum_y = sum([value(model_to_solve.y_ij[h, c]) for h in hots for c in colds])
+    elif cost_selected == "cost":
+        if model_selected == "M4":
+            sum_y = sum([value(model_to_solve.q_ijkl[i, k, j, l]) * i.cost for i in hots for k in intervals for j in colds for l in intervals if i.__class__ == Utility])
+        else:
+            sum_y = sum([value(model_to_solve.q_ijk[i, j, k]) * i.cost for i in hots for j in colds for k in intervals if i.__class__ == Utility])
+    else:
+        sum_y = 0
     print("HS: {}, CS: {}, TI: {}".format(len(hots), len(colds), len(intervals)))
     print("Objective: y = {}, in {} seconds".format(sum_y, round(time() - s_time, 6)))
     # create list of heat exchanger matching
@@ -219,7 +252,15 @@ def solve_transshipment_model(network: Network,
     for i in network.H:
         for j in network.C:
             try:
-                if value(model_to_solve.y_ij[i, j]) != 0:
+                if value(model_to_solve.y_ij[i, j]) > 0:
+                    # for minimizing function is utility cost, need to check the q_ijk value first
+                    if cost_selected == "cost":
+                        if network.model == "M4":
+                            q = sum(value(model_to_solve.q_ijkl[i, k, j, l]) for k in network.T for l in network.T)
+                        else:
+                            q = sum(value(model_to_solve.q_ijk[i, j, k]) for k in network.T)
+                        if q <= 0:
+                            continue
                     hx_name: str = f"EX-{hx_id}"
                     hx_id += 1
                     if network.model == "M4":
