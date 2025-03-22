@@ -155,3 +155,4 @@ cython_debug/
 .conda
 .idea
 output/*
+**/.DS_Store

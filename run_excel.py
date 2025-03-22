@@ -2,13 +2,32 @@
 from hens import *
 import os
 import pandas as pd
+import argparse  # Import the argparse library
 
 if __name__ == '__main__':
-    excel_file = "cases.xlsx"
+    # Set up argument parsing
+    parser = argparse.ArgumentParser(description="Run heat exchange network synthesis from an Excel file.")
+    parser.add_argument("excel_file", nargs='?', default="cases.xlsx", help="The path to the Excel file containing the case study data. Defaults to 'cases.xlsx' if not provided.")
+    args = parser.parse_args()
+    excel_file = args.excel_file  # Get the excel file from argument
+    
     models = ["M1", "M2", "M3", "M4", "M5", "M6"]
     cost = "cost"
     alpha_w = 25.0
     
+    # Error check: Ensure the Excel file exists
+    if not os.path.exists(excel_file):
+        print(f"Error: Excel file '{excel_file}' not found.")
+        exit()  # Stop execution if the file doesn't exist
+
+    print(f"Reading from Excel file: {excel_file}")
+    xls = pd.ExcelFile(excel_file)
+
+    # Print the list of sheet names
+    print("Sheet names in the Excel file:")
+    for sheet_name in xls.sheet_names:
+        print(f"- {sheet_name}")
+
     print(f"Reading from Excel file: {excel_file}")
     xls = pd.ExcelFile(excel_file)
 
