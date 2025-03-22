@@ -28,21 +28,22 @@ if __name__ == '__main__':
     for sheet_name in xls.sheet_names:
         print(f"- {sheet_name}")
 
-    print(f"Reading from Excel file: {excel_file}")
-    xls = pd.ExcelFile(excel_file)
-
     for sheet_name in xls.sheet_names:
         print(f"================================= Sheet: {sheet_name} =================================")
+        # Create a MinUtilityProblem instance from the Excel sheet
         min_up_test: MinUtilityProblem = MinUtilityProblem.generate_from_excel_sheet(xls, sheet_name)
+        
+        # Print the minimum demanded utility and pinch point temperature
         min_up_test.print_minimum_demanded_utility()
         
-        # Save composite and grand composite plots
+        # Save composite and grand composite plots to output directory
         filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", f"{sheet_name}_composite.png")
         min_up_test.plot_composite_diagram(save=True, filename=filename)
         filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", f"{sheet_name}_grand_composite.png")
         min_up_test.plot_grand_composite_curve(save=True, filename=filename)
         
         print("- Solving Min Utility Problem -")
+        # Solve the Min Utility Problem
         sigma_HU, delta_HU, pinch_interval = solve_min_utility(min_up_test, debug=False)
 
         for model_selected in models:
