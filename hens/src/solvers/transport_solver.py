@@ -9,14 +9,14 @@ def solve_transport_model(network: Network, greedy: bool = False):
     model_to_solve: ConcreteModel = ConcreteModel(name="MIN_MATCHES_TRANSPORT")
 
     # declaring model inputs
-    hots = network.H               # hot streams including utilities
-    colds = network.C               # cold streams including utilities
-    interval = network.T               # temperature intervals
-    p_ij = network.P               # stream exchange permission
+    hots = network.H            # hot streams including utilities
+    colds = network.C           # cold streams including utilities
+    interval = network.T        # temperature intervals
+    p_ij = network.P            # stream exchange permission
     sigma = network.sigmas      # heat supply per hot stream per interval
     delta = network.deltas      # heat demand per cold stream per interval
     if not greedy:
-        u_ij = network.U               # Big-M parameter
+        u_ij = network.U        # Big-M parameter
     else:
         u_ij = network.U_greedy
     # declaring model variables
@@ -54,6 +54,7 @@ def solve_transport_model(network: Network, greedy: bool = False):
             return model.q_ijkl[h, s, c, t] == 0
         else:
             return Constraint.Skip
+        
     model_to_solve.zero_heat_constraint = Constraint(hots, colds, interval, interval, rule=zero_heat_rule)
 
     # define hot to cold matching permission

@@ -228,7 +228,7 @@ def solve_transshipment_model(network: Network,
 
     # solving model
     s_time = time()
-    solver: SolverFactory = SolverFactory("glpk")
+    solver = SolverFactory("glpk")
     if log_file:
         solver.solve(model_to_solve, logfile="solver.log", tee=True)
     else:
@@ -290,5 +290,9 @@ def solve_transshipment_model(network: Network,
 
 def print_matches_transshipment(hexs: list[MatchingHEX]):
     print("------- Matching Streams ------")
+    print(f"Number of Matches: {len(hexs)}")
+    i = 1
     for hx in hexs:
-        print(f"{hx.hot.name} - {hx.cold.name} q = {hx.duty:.2f}")
+        print(f"{i}: {hx.hot.name} <-> {hx.cold.name} , Q = {hx.duty:.2f}")
+        i += 1
+        

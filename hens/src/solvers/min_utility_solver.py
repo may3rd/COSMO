@@ -79,21 +79,36 @@ def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False):
 
     # solving model
     solver = SolverFactory("glpk")
-    solver.solve(model_to_solve)
+    results = solver.solve(model_to_solve)
+    
+    # Check if the solver found an optimal solution
+    from pyomo.opt import SolverStatus, TerminationCondition
+    if results.solver.status != SolverStatus.ok or results.solver.termination_condition != TerminationCondition.optimal:
+        raise ValueError("Solver failed to find an optimal solution. The model may be infeasible for this problem instance.")
     
     # generating sigmas dictionary for hot utilities
     sigma_hu = {}
+    min_hu = 0
     for hot in hot_utilities:
         for k in intervals:
             # ignore VS Code error: line works as intended
             sigma_hu[hot, k] = sum(value(model_to_solve.sigma_hu[hot, cs, k]) for cs in cold_streams)
+            min_hu += sigma_hu[hot, k]
+    
+    # print the minimum hot utility
+    print(f"Minimum hot utility: {min_hu}")
     
     # generating deltas dictionary for cold utilities
     delta_cu = {}
+    min_cu = 0
     for cold in cold_utilities:
         for k in intervals:
             # ignore VS Code error: line works as intended
             delta_cu[cold, k] = sum(value(model_to_solve.delta_cu[hs, cold, k]) for hs in hot_streams)
+            min_cu += delta_cu[cold, k]
+            
+    # print the minimum cold utility
+    print(f"Minimum cold utility: {min_cu}")
 
     # determine the pinch temperature interval
     residual_ik_value = {i: value(model_to_solve.residual_ik[i]) for i in model_to_solve.residual_ik}

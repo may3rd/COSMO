@@ -16,7 +16,7 @@ from typing import Any, Union
 import matplotlib.pyplot as plt
 import csv
 import numpy as np
-
+import pandas as pd
 
 class MinUtilityProblem:
     """
@@ -269,30 +269,38 @@ class MinUtilityProblem:
         self.__init_grand_composite_curve()
 
     def plot_composite_diagram(self, save: bool = False, filename: str = 'composite.svg') -> None:
-        plt.plot(self.hot_composite_h, self.hot_composite_t, 'tab:red')
-        plt.plot(self.cold_composite_h, self.cold_composite_t, 'tab:blue')
-        plt.plot(self.hot_composite_h, self.hot_composite_t, 'ro')
-        plt.plot(self.cold_composite_h, self.cold_composite_t, 'bo')
+        # Create a new figure and axes
+        fig, ax = plt.subplots()
+
+        # Plot hot and cold composite curves
+        ax.plot(self.hot_composite_h, self.hot_composite_t, 'tab:red', label='Hot Composite')
+        ax.plot(self.cold_composite_h, self.cold_composite_t, 'tab:blue', label='Cold Composite')
+        ax.plot(self.hot_composite_h, self.hot_composite_t, 'ro')
+        ax.plot(self.cold_composite_h, self.cold_composite_t, 'bo')
+
+        # Initialize variables for filled areas
         left_hot_h_index: int = 0
         right_cold_h_index: int = 0
-        # initialize list
         left_hot_h: list[float] = []
         left_hot_t: list[float] = []
         left_cold_h: list[float] = []
         right_hot_h: list[float] = []
         right_cold_h: list[float] = []
         right_cold_t: list[float] = []
-        # find left point of hot composite curve
+
+        # Find left point of hot composite curve
         for i in range(len(self.hot_composite_h)):
             if self.hot_composite_h[i] >= self.cold_composite_h[0]:
                 left_hot_h_index = i
                 break
-        # find right point of cold composite curve
+
+        # Find right point of cold composite curve
         for i in range(len(self.cold_composite_h) - 1, -1, -1):
             if self.cold_composite_h[i] <= self.hot_composite_h[-1]:
                 right_cold_h_index = i
                 break
-        # calculate temperature according it left and right points
+
+        # Calculate temperatures for left and right points
         if left_hot_h_index == 0:
             left_hot_h.append(self.hot_composite_h[0])
             left_hot_t.append(self.hot_composite_t[0])
@@ -301,16 +309,19 @@ class MinUtilityProblem:
                 left_hot_h.append(self.hot_composite_h[i])
                 left_hot_t.append(self.hot_composite_t[i])
             i = left_hot_h_index
-            m = ((self.hot_composite_t[i] - self.hot_composite_t[i - 1]) / (self.hot_composite_h[i] - self.hot_composite_h[i - 1]))
+            m = ((self.hot_composite_t[i] - self.hot_composite_t[i - 1]) / 
+                (self.hot_composite_h[i] - self.hot_composite_h[i - 1]))
             left_hot_h.append(self.cold_composite_h[0])
             h_diff = (self.cold_composite_h[0] - self.hot_composite_h[i - 1])
             left_hot_t.append(self.hot_composite_t[i - 1] + h_diff * m)
+
         if left_hot_h_index == 0:
             right_cold_h = self.hot_composite_h
         else:
             right_hot_h.append(left_hot_h[-1])
             for r in self.hot_composite_h[left_hot_h_index:]:
                 right_hot_h.append(r)
+
         if right_cold_h_index == len(self.cold_composite_h) - 1:
             right_cold_h.append(self.cold_composite_h[-1])
             right_cold_t.append(self.cold_composite_t[-1])
@@ -319,57 +330,97 @@ class MinUtilityProblem:
                 right_cold_h.append(self.cold_composite_h[i])
                 right_cold_t.append(self.cold_composite_t[i])
             i = right_cold_h_index
-            m = ((self.cold_composite_t[i + 1] - self.cold_composite_t[i])
-                 / (self.cold_composite_h[i + 1] - self.cold_composite_h[i]))
+            m = ((self.cold_composite_t[i + 1] - self.cold_composite_t[i]) / 
+                (self.cold_composite_h[i + 1] - self.cold_composite_h[i]))
             right_cold_h.append(self.hot_composite_h[-1])
-            right_cold_t.append(self.cold_composite_t[i] + (self.hot_composite_h[-1] - self.cold_composite_h[i]) * m)
-        # correct order of right_cold_h and right_cold_t
+            right_cold_t.append(self.cold_composite_t[i] + 
+                                (self.hot_composite_h[-1] - self.cold_composite_h[i]) * m)
+
+        # Correct order of right_cold_h and right_cold_t
         right_cold_h.reverse()
         right_cold_t.reverse()
+
         for x in self.cold_composite_h[:right_cold_h_index]:
             left_cold_h.append(x)
         if right_cold_h_index < len(self.cold_composite_h) - 1:
             left_cold_h.append(right_cold_h[0])
+
+        # Calculate combined enthalpy and interpolated temperatures
         combined_h = sorted(list(set(right_hot_h) | set(left_cold_h)))
         hot_t = np.interp(combined_h, self.hot_composite_h, self.hot_composite_t)
         cold_t = np.interp(combined_h, self.cold_composite_h, self.cold_composite_t)
-        plt.fill_between(combined_h, hot_t, cold_t, color='g', alpha=0.3)
-        plt.fill_between(left_hot_h, 0, left_hot_t, color='b', alpha=0.5)
-        plt.fill_between(right_cold_h, 0, right_cold_t, color='r', alpha=0.5)
+
+        # Fill areas
+        ax.fill_between(combined_h, hot_t, cold_t, color='g', alpha=0.3)
+        ax.fill_between(left_hot_h, 0, left_hot_t, color='b', alpha=0.5)
+        ax.fill_between(right_cold_h, 0, right_cold_t, color='r', alpha=0.5)
+
+        # Add pinch line if applicable
         try:
             pinch_index = self.cold_composite_t.index(self.pinch_temperature)
             pinch_h = self.cold_composite_h[pinch_index]
-            plt.plot([pinch_h, pinch_h], [self.temperatures[0], self.temperatures[-1]], ':')
+            ax.plot([pinch_h, pinch_h], [self.temperatures[0], self.temperatures[-1]], ':', 
+                    label='Pinch Line')
         except ValueError:
             pass
-        plt.grid(True)
-        plt.title('Temperature-Enthalpy Composite Diagram')
-        plt.xlabel('Enthalpy')
-        plt.ylabel('Temperature')
+
+        # Customize the plot
+        ax.grid(True)
+        ax.set_title('Temperature-Enthalpy Composite Diagram')
+        ax.set_xlabel('Enthalpy')
+        ax.set_ylabel('Temperature')
+        ax.legend()
+
+        # Save or display the plot
         if save:
             print(f'Save composite diagram to {filename}')
-            plt.savefig(filename)
+            fig.savefig(filename)
+            plt.close(fig)  # Close the figure to prevent overlap
         else:
-            plt.show()
+            plt.show()  # Show the plot and close it afterward
 
     def plot_grand_composite_curve(self, save: bool = False, filename: str = 'grand_composite.png') -> None:
-        plt.plot(self.grand_composite_h, self.grand_composite_t, 'tab:blue')
-        plt.plot(self.grand_composite_h, self.grand_composite_t, 'bo')
-        plt.fill_between([0, self.grand_composite_h[0]], 0, self.temperatures[0], color='r', alpha=0.5)
-        plt.fill_between([0, self.grand_composite_h[-1]], 0, self.temperatures[-1], color='b', alpha=0.5)
-        plt.plot([0, self.grand_composite_h[-1]], [self.pinch_temperature, self.pinch_temperature], ':')
-        plt.grid(True)
-        plt.title('Grand Composite Curve')
-        plt.xlabel('Net Enthalpy Change')
-        plt.ylabel('Temperature')
+        """
+        Plots the Grand Composite Curve with hot and cold utility areas and pinch temperature.
+        
+        Parameters:
+        - save (bool): If True, saves the plot to a file; if False, displays it.
+        - filename (str): Name of the file to save the plot (used when save=True).
+        """
+        # Create a new figure and axes
+        fig, ax = plt.subplots()
+
+        # Plot the grand composite curve line and points
+        ax.plot(self.grand_composite_h, self.grand_composite_t, 'tab:blue', label='Grand Composite Curve')
+        ax.plot(self.grand_composite_h, self.grand_composite_t, 'bo')  # Blue dots at data points
+
+        # Fill areas for hot and cold utilities
+        ax.fill_between([0, self.grand_composite_h[0]], 0, self.temperatures[0], 
+                    color='r', alpha=0.5, label='Hot Utility')
+        ax.fill_between([0, self.grand_composite_h[-1]], 0, self.temperatures[-1], 
+                    color='b', alpha=0.5, label='Cold Utility')
+
+        # Add pinch temperature line
+        ax.plot([0, self.grand_composite_h[-1]], [self.pinch_temperature, self.pinch_temperature], 
+            ':', label='Pinch Temperature')
+
+        # Customize the plot
+        ax.grid(True)
+        ax.set_title('Grand Composite Curve')
+        ax.set_xlabel('Net Enthalpy Change')
+        ax.set_ylabel('Temperature')
+        ax.legend()
+
+        # Handle saving or displaying the plot
         if save:
-            print(f'Same grand composite curve to {filename}')
-            plt.savefig(filename)
+            print(f'Saving grand composite curve to {filename}')
+            fig.savefig(filename)
+            plt.close(fig)  # Close the figure to prevent overlap
         else:
-            plt.show()
+            plt.show()  # Display the plot and close it afterward
 
     def __str__(self) -> str:
-        return "HS: {} \nCS: {}\nHU: {}\nCU: {}\nDT: {}".format(
+        return "Hot Stream: {} \nCold Stream: {}\nHot Utility: {}\nCold Utility: {}\nDiff Tmin: {}".format(
             len(self.hot_streams), len(self.cold_streams),
             len(self.hot_utilities), len(self.cold_utilities),
             self.diff_t_min)
@@ -441,3 +492,83 @@ class MinUtilityProblem:
                         return_obj.accepted_h_c[(hot_stream, cold_stream)] = int(e[2])
             return return_obj
         return None
+
+    @classmethod
+    def generate_from_excel_sheet(cls, xls: pd.ExcelFile, sheet_name: str) -> 'MinUtilityProblem':
+        """
+        Generate a MinUtilityProblem instance from an Excel sheet.
+
+        Args:
+            xls (pd.ExcelFile): The Excel file object.
+            sheet_name (str): The name of the sheet to read from.
+
+        Returns:
+            MinUtilityProblem: An instance of the class initialized with the parsed data.
+        """
+        # Read DTmin from cell AH1
+        dtmin = pd.read_excel(xls, sheet_name=sheet_name, usecols="AH", skiprows=1, nrows=1, header=None).iloc[0, 0]
+
+        # Read cold streams (A3:F100, headers in A2:F2)
+        cold_streams_df = pd.read_excel(xls, sheet_name=sheet_name, usecols="A:F", header=1)
+        cold_streams_df = cold_streams_df[cold_streams_df["Cold Stream"].notna()]
+
+        # Read hot streams (H3:M100, headers in H2:M2)
+        hot_streams_df = pd.read_excel(xls, sheet_name=sheet_name, usecols="H:M", header=1)
+        hot_streams_df = hot_streams_df[hot_streams_df["Hot Stream"].notna()]
+
+        # Read cold utilities (O3:T100, headers in O2:T2)
+        cold_utilities_df = pd.read_excel(xls, sheet_name=sheet_name, usecols="O:T", header=1)
+        cold_utilities_df = cold_utilities_df[cold_utilities_df["Cold Utility"].notna()]
+
+        # Read hot utilities (V3:AA100, headers in V2:AA2)
+        hot_utilities_df = pd.read_excel(xls, sheet_name=sheet_name, usecols="V:AA", header=1)
+        hot_utilities_df = hot_utilities_df[hot_utilities_df["Hot Utility"].notna()]
+
+        # Create streams
+        cold_streams = [
+            Stream(name=row["Cold Stream"], t_in=row["cold supply temp"], t_out=row["cold target temp"], f_cp=row["cold MCp"])
+            for _, row in cold_streams_df.iterrows()
+        ]
+        hot_streams = [
+            Stream(name=row["Hot Stream"], t_in=row["hot supply temp"], t_out=row["hot target temp"], f_cp=row["hot MCp"])
+            for _, row in hot_streams_df.iterrows()
+        ]
+
+        # Create utilities
+        cold_utilities = [
+            Utility(name=row["Cold Utility"], t_in=row["cu supply temp"], t_out=row["cu target temp"], cost=row["cu cost"])
+            for _, row in cold_utilities_df.iterrows()
+        ]
+        hot_utilities = [
+            Utility(name=row["Hot Utility"], t_in=row["hu supply temp"], t_out=row["hu target temp"], cost=row["hu cost"])
+            for _, row in hot_utilities_df.iterrows()
+        ]
+
+        # Combine streams and utilities
+        streams = hot_streams + cold_streams
+        utilities = hot_utilities + cold_utilities
+
+        # Create the problem instance
+        problem = cls(streams, utilities, dtmin)
+
+        # Read constraints (AC3:AE100, headers in AC2:AE2)
+        constraints_df = pd.read_excel(xls, sheet_name=sheet_name, usecols="AC:AE", header=1)
+        constraints_df = constraints_df[constraints_df["Hot"].notna() & constraints_df["Cold"].notna()]
+
+        # Create dictionaries for quick lookup
+        hot_dict = {s.name: s for s in problem.hot_streams + problem.hot_utilities}
+        cold_dict = {s.name: s for s in problem.cold_streams + problem.cold_utilities}
+
+        # Apply constraints
+        for _, row in constraints_df.iterrows():
+            hot_name = row["Hot"]
+            cold_name = row["Cold"]
+            flag = int(row["Flag"])
+            if hot_name in hot_dict and cold_name in cold_dict:
+                hot_stream = hot_dict[hot_name]
+                cold_stream = cold_dict[cold_name]
+                problem.accepted_h_c[(hot_stream, cold_stream)] = flag
+            else:
+                print(f"Warning: Constraint for {hot_name} and {cold_name} not applied, streams not found.")
+
+        return problem

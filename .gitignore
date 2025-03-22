@@ -151,3 +151,7 @@ cython_debug/
 #.idea/
 
 ~$*.xlsx
+.qodo
+.conda
+.idea
+output/*
