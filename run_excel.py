@@ -45,9 +45,14 @@ if __name__ == '__main__':
         min_up_test.print_minimum_demanded_utility()
         
         # Save composite and grand composite plots to output directory
-        filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", f"{sheet_name}_composite.png")
+        # Check if the output directory exists, create it if not
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        print("- Saving Composite and Grand Composite Plots -")
+        filename = os.path.join(output_dir, f"{sheet_name}_composite.png")
         min_up_test.plot_composite_diagram(save=True, filename=filename)
-        filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", f"{sheet_name}_grand_composite.png")
+        filename = os.path.join(output_dir, f"{sheet_name}_grand_composite.png")
         min_up_test.plot_grand_composite_curve(save=True, filename=filename)
         
         print("- Solving Min Utility Problem -")
