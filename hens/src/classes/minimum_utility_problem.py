@@ -175,6 +175,14 @@ class MinUtilityProblem:
                         self.accepted_h_c_k[(i, j, k)] = False
 
     def __init_heat_cascade(self) -> None:
+        """_summary_
+        This method initializes the heat cascade table and the unfeasible heat cascade table.
+        The heat cascade table contains the enthalpy change for each interval, and the exit enthalpy.
+        The unfeasible heat cascade table contains the enthalpy change for each interval, and the exit enthalpy.
+        The exit enthalpy is the minimum exit enthalpy for each interval.
+        The optimal hot and cold utilities are also calculated.
+        The pinch temperature is also calculated.
+        """
         exit_h: float = 0
         lowest_exit_h: float = 0
         i: int = 0
@@ -200,6 +208,11 @@ class MinUtilityProblem:
             self.pinch_temperature = self.intervals[pinch_interval].t_min
 
     def __init_composite_diagram(self) -> None:
+        """_summary_
+        This method initializes the composite diagram.
+        The composite diagram is a plot of the enthalpy change for each interval, and the exit enthalpy.
+        The exit enthalpy is the minimum exit enthalpy for each interval.
+        """
         # need temperatures and enthalpies in ascending order
         temperatures: list[float] = self.temperatures[::-1]
         delta_h_hot: list[float] = []

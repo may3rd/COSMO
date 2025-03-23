@@ -28,7 +28,12 @@ class ProcessStream:
             self.__class__.cold_stream_id += 1
 
     def __str__(self) -> str:
-        return self.id
+        return self.name
 
     def __repr__(self) -> str:
-        return self.id
+        return_str = ""
+        if self.is_hot:
+            return_str += f"Hot Stream: {self.name} ({self.t_in:.2f} to {self.t_out:.2f})"
+        else:
+            return_str += f"Cold Stream: {self.name} ({self.t_in:.2f} to {self.t_out:.2f})"
+        return return_str

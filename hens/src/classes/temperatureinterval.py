@@ -13,7 +13,7 @@ class TemperatureInterval:
         self.diff_temp: float = self.t_max - self.t_min
 
     def __str__(self) -> str:
-        return "[{}, {}]".format(self.t_max, self.t_min)
+        return f"[{self.t_max}, {self.t_min}]"
 
     def __repr__(self) -> str:
         return self.__str__()

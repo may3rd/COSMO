@@ -16,4 +16,8 @@ class Utility(ProcessStream):
         return f'{self.name} {self.t_in:.2f} {self.t_out:.2f} {self.cost:.2f}'
 
     def __repr__(self) -> str:
-        return str(self)
+        if self.t_in > self.t_out:
+            return_str = f'Hot Utility {self.name} {self.t_in:.2f} {self.t_out:.2f} {self.cost:.2f}'
+        else:
+            return_str = f'Cold Utility {self.name} {self.t_in:.2f} {self.t_out:.2f} {self.cost:.2f}'
+        return return_str

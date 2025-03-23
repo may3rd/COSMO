@@ -24,4 +24,5 @@ class MatchingHEX:
         return return_str
 
     def __repr__(self) -> str:
-        return self.__str__()
+        return_str = f"MatchingHEX({self.hot.name}, {self.cold.name}, {self.hot_interval}, {self.cold_interval}, {self.duty}, {self.name})"
+        return return_str
