@@ -244,9 +244,10 @@ def solve_transshipment_model(network: Network,
             sum_y = sum([value(model_to_solve.q_ijk[i, j, k]) * i.cost for i in hots for j in colds for k in intervals if i.__class__ == Utility])
     else:
         sum_y = 0
-    print("HS: {}, CS: {}, TI: {}".format(len(hots), len(colds), len(intervals)))
-    print("Objective: y = {}, in {} seconds".format(sum_y, round(time() - s_time, 6)))
-    # create list of heat exchanger matching
+    print("Hot stream number: {}\nCold stream number: {}\nTemperature interval number: {}".format(len(hots), len(colds), len(intervals)))
+    print("Objective: y = {}\nSolved in {} seconds".format(sum_y, round(time() - s_time, 6)))
+    
+    # create list of heat exchanger matching from the results
     hexs: list[MatchingHEX] = []
     hx_id: int = 1
     for i in network.H:
@@ -295,4 +296,5 @@ def print_matches_transshipment(hexs: list[MatchingHEX]):
     for hx in hexs:
         print(f"{i}: {hx.hot.name} <-> {hx.cold.name} , Q = {hx.duty:.2f}")
         i += 1
-        
+    print("------- End of Matching ------")
+    

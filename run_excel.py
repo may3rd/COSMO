@@ -1,8 +1,15 @@
-# Run the case study from the excel file
+"""
+This script performs heat exchange network synthesis (HENS) analysis based on
+data provided in an Excel file. It reads process stream information from the
+Excel file, calculates minimum utility requirements, generates composite and
+grand composite curves, and solves transshipment models to design heat exchanger
+networks. The script supports multiple models and can handle cases with and 
+without pinch points.
+"""
 from hens import *
 import os
 import pandas as pd
-import argparse  # Import the argparse library
+import argparse
 
 if __name__ == '__main__':
     # Set up argument parsing
@@ -11,6 +18,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     excel_file = args.excel_file  # Get the excel file from argument
     
+    # Define the models and cost function to use
     models = ["M1", "M2", "M3", "M4", "M5", "M6"]
     cost = "cost"
     alpha_w = 25.0
