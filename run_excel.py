@@ -35,14 +35,30 @@ if __name__ == '__main__':
     print("Sheet names in the Excel file:")
     for sheet_name in xls.sheet_names:
         print(f"- {sheet_name}")
-
+    
+    # Loop through each sheet in the Excel file to find the Maching Networks
     for sheet_name in xls.sheet_names:
         print(f"================================= Sheet: {sheet_name} =================================")
         # Create a MinUtilityProblem instance from the Excel sheet
-        min_up_test: MinUtilityProblem = MinUtilityProblem.generate_from_excel_sheet(xls, sheet_name)
+        min_u_problem: MinUtilityProblem = MinUtilityProblem.generate_from_excel_sheet(xls, sheet_name)
+
+        filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", f"{sheet_name}_composite.png")
+        min_u_problem.plot_composite_diagram(save=True, filename=filename)
+        filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output", f"{sheet_name}_grand_composite.png")
+        min_u_problem.plot_grand_composite_curve(save=True, filename=filename)
+
+        # Check if the output directory exists, create it if not
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        print("- Saving Composite and Grand Composite Plots -")
+        filename = os.path.join(output_dir, f"{sheet_name}_composite.png")
+        min_u_problem.plot_composite_diagram(save=True, filename=filename)
+        filename = os.path.join(output_dir, f"{sheet_name}_grand_composite.png")
+        min_u_problem.plot_grand_composite_curve(save=True, filename=filename)
         
         # Print the minimum demanded utility and pinch point temperature
-        min_up_test.print_minimum_demanded_utility()
+        min_u_problem.print_minimum_demanded_utility()
         
         # Save composite and grand composite plots to output directory
         # Check if the output directory exists, create it if not
@@ -51,28 +67,28 @@ if __name__ == '__main__':
             os.makedirs(output_dir)
         print("- Saving Composite and Grand Composite Plots -")
         filename = os.path.join(output_dir, f"{sheet_name}_composite.png")
-        min_up_test.plot_composite_diagram(save=True, filename=filename)
+        min_u_problem.plot_composite_diagram(save=True, filename=filename)
         filename = os.path.join(output_dir, f"{sheet_name}_grand_composite.png")
-        min_up_test.plot_grand_composite_curve(save=True, filename=filename)
+        min_u_problem.plot_grand_composite_curve(save=True, filename=filename)
         
         print("- Solving Min Utility Problem -")
         # Solve the Min Utility Problem
-        sigma_HU, delta_HU, pinch_interval = solve_min_utility(min_up_test, debug=False)
+        sigma_HU, delta_HU, pinch_interval = solve_min_utility(min_u_problem, debug=False)
 
         for model_selected in models:
             print("================================= Model: ", model_selected, " =================================")
             print("------- Matches without Pinch -------")
-            no_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU)
+            no_pinch_network: Network = Network(min_u_problem, sigma_HU, delta_HU)
             hexs = solve_transshipment_model(no_pinch_network, log_file=False, model_selected=model_selected, cost_selected=cost, alpha_w=alpha_w)
             print_matches_transshipment(hexs)
 
             if pinch_interval > 0:
                 #print("------- Above Pinch -------")
-                above_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=False)
+                above_pinch_network: Network = Network(min_u_problem, sigma_HU, delta_HU, pinch_interval, below_pinch=False)
                 ab_hexs = solve_transshipment_model(above_pinch_network, log_file=False, model_selected=model_selected, cost_selected=cost, alpha_w=alpha_w)
 
                 #print("------- Below Pinch -------")
-                below_pinch_network: Network = Network(min_up_test, sigma_HU, delta_HU, pinch_interval, below_pinch=True)
+                below_pinch_network: Network = Network(min_u_problem, sigma_HU, delta_HU, pinch_interval, below_pinch=True)
                 bl_hexs = solve_transshipment_model(below_pinch_network, log_file=False, model_selected=model_selected, cost_selected=cost, alpha_w=alpha_w)
 
                 print("------- Match with Pinch -------")
