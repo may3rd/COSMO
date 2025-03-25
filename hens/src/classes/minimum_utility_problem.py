@@ -126,7 +126,7 @@ class MinUtilityProblem:
             # initializing sigmas
             for hot_stream in self.hot_streams:
                 if hot_stream.interval.passes_through_interval(interval):
-                    self.sigmas[(hot_stream, interval)] = TemperatureInterval.common_interval(interval, hot_stream.interval).diff_temp * hot_stream.FCp
+                    self.sigmas[(hot_stream, interval)] = float(TemperatureInterval.common_interval(interval, hot_stream.interval).diff_temp * hot_stream.FCp)
                 else:
                     self.sigmas[(hot_stream, interval)] = 0
                 total_h_interval += self.sigmas[(hot_stream, interval)]
@@ -134,7 +134,7 @@ class MinUtilityProblem:
             # by adding minimum diff temp to each CS interval, but CS intervals were nos modified
             for cold_stream in self.cold_streams:
                 if cold_stream.interval.shifted(self.diff_t_min).passes_through_interval(interval):
-                    self.deltas[(cold_stream, interval)] = TemperatureInterval.common_interval(interval, cold_stream.interval.shifted(self.diff_t_min)).diff_temp * cold_stream.FCp
+                    self.deltas[(cold_stream, interval)] = float(TemperatureInterval.common_interval(interval, cold_stream.interval.shifted(self.diff_t_min)).diff_temp * cold_stream.FCp)
                 else:
                     self.deltas[(cold_stream, interval)] = 0
                 total_h_interval -= self.deltas[(cold_stream, interval)]
@@ -426,7 +426,7 @@ class MinUtilityProblem:
 
         # Handle saving or displaying the plot
         if save:
-            print(f'Saving grand composite curve to {filename}')
+            print(f'Save grand composite curve to {filename}')
             fig.savefig(filename)
             plt.close(fig)  # Close the figure to prevent overlap
         else:

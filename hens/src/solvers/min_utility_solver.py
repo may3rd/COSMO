@@ -6,13 +6,14 @@ import logging  # Import the logging module
 # Configure logging (you can adjust level and format as needed)
 logging.basicConfig(level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False):
+def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False, pinch_temperature = None) -> tuple:
     """
     Solves the minimum utility problem using linear programming.
 
     Args:
         problem_instance: An instance of MinUtilityProblem containing the problem data.
         debug: If True, prints additional debug information.
+        pinch_temperature: The pinch temperature to use for the pinch point. If 0.0, the pinch point will be determined automatically.
 
     Returns:
         A tuple containing:
@@ -148,14 +149,44 @@ def solve_min_utility(problem_instance: MinUtilityProblem, debug: bool = False):
         print(f"Minimum cold utility: {min_cu}")
 
         # determine the pinch temperature interval
-        residual_ik_value = {i: value(model_to_solve.residual_ik[i]) for i in model_to_solve.residual_ik}
-        zero_indices = [i for i in residual_ik_value.keys() if abs(residual_ik_value[i]) < 1e-6]  # Using abs for comparison
-        pinch_interval = 0
-        if zero_indices:
-            for i in zero_indices:
-                if not (i == 0 or i == len(intervals)):
+        # residual_ik_value = {i: value(model_to_solve.residual_ik[i]) for i in model_to_solve.residual_ik}
+        # zero_indices = [i for i in residual_ik_value.keys() if abs(residual_ik_value[i]) < 1e-6]  # Using abs for comparison
+        # pinch_interval = 0
+        # if zero_indices:
+        #     for i in zero_indices:
+        #         if not (i == 0 or i == len(intervals)):
+        #             pinch_interval = i
+        #             break
+        
+        if pinch_temperature is None:
+            # Assume residual_ik is a dictionary or list from your model, and intervals, hot_streams, cold_streams are defined
+            residual_ik_value = {i: model_to_solve.residual_ik[i].value for i in model_to_solve.residual_ik}  # Extract values
+            tolerance = 1e-6
+            candidate_pinches = [i for i in range(1, len(intervals)) if abs(residual_ik_value[i]) < tolerance]
+
+            pinch_interval = 0  # Default to no pinch
+            for i in candidate_pinches:
+                # Check if hot and cold streams pass through the interval above the residual (intervals[i-1])
+                hot_present = any(intervals[i-1].t_min <= hot.t_in and intervals[i-1].t_max >= hot.t_out 
+                                for hot in hot_streams)
+                cold_present = any(intervals[i-1].t_min <= cold.t_out and intervals[i-1].t_max >= cold.t_in 
+                                for cold in cold_streams)
+                if hot_present and cold_present:
+                    pinch_interval = i
+                    break  # Stop at the highest temperature (smallest i) valid pinch
+
+            if pinch_interval == 0:
+                print("No valid pinch point found with active streams.")
+            else:
+                print(f"Pinch point identified at interval boundary {pinch_interval}, temperature: {intervals[pinch_interval-1].t_max}")
+        else:
+            # Use the pinch temperature provided by the user
+            pinch_interval = 0
+            for i in range(1, len(intervals)):
+                if intervals[i-1].t_min <= pinch_temperature and intervals[i-1].t_max >= pinch_temperature:
                     pinch_interval = i
                     break
+                
         pinch_hots_pass: bool = False
         pinch_colds_pass: bool = False
         for hot in problem_instance.hot_streams:

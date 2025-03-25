@@ -18,7 +18,8 @@ def solve_transshipment_model(network: Network,
                               model_selected: str = "M1",
                               cost_selected: str = "matching",
                               alpha_w: float = 25,
-                              log_file: bool = False) -> list[MatchingHEX]:
+                              log_file: bool = False,
+                              debug: bool = False) -> list[MatchingHEX]:
     """
     Solve the heat exchanger network synthesis using transshipment model listed in Yang (2015)
 
@@ -32,7 +33,7 @@ def solve_transshipment_model(network: Network,
     list of MatchingHEX
     """
     # ensure that only one model is selected
-    if model_selected is None or model_selected not in ["M1", "M2", "M3", "M4", "M5", "M6"]:
+    if model_selected is None or model_selected not in ["M0", "M1", "M2", "M3", "M4", "M5", "M6"]:
         model_selected = "M1"
 
     # ensure that only one cost function is selected
@@ -66,6 +67,8 @@ def solve_transshipment_model(network: Network,
                 u_ij[i, j] = float(sum(sigma[i, k] for k in intervals))
             elif i.__class__ == Utility and j.__class__ == Stream:
                 u_ij[i, j] = float(sum(delta[j, k] for k in intervals))
+            elif i.__class__ == Utility and j.__class__ == Utility:
+                u_ij[i, j] = 0 # no heat exchange between utilities
             else:
                 u_ij[i, j] = 0
     # update a tighter upper bound (Gundersen et al. (1997)
@@ -117,7 +120,7 @@ def solve_transshipment_model(network: Network,
         """
         if model_selected == "M2":
             return sum(model.y_ij[i, j] * w_ij[i, j] for i in hots for j in colds)
-        if model_selected == "M6":
+        elif model_selected == "M6":
             return (sum(model.y_ij[i, j] for i in hots for j in colds) * alpha_w +
                     sum(model.q_ijk[m, j, k] * m.cost for m in hots for j in colds for k in intervals if m.__class__ == Utility) +
                     sum(model.q_ijk[i, n, k] * n.cost for i in hots for n in colds for k in intervals if n.__class__ == Utility))
@@ -125,16 +128,20 @@ def solve_transshipment_model(network: Network,
             return sum(model.y_ij[i, j] for i in hots for j in colds)
 
     def utility_cost_min_rule(model):
+        total_cost = 0
         if model_selected == "M4":
-            return sum(model.q_ijkl[i, k, j, l] * i.cost for i in hots for k in intervals for j in colds for l in intervals if i.__class__ == Utility)
+            total_cost += sum(model.q_ijkl[i, k, j, l] * i.cost for i in hots for k in intervals for j in colds for l in intervals if i.__class__ == Utility)
+            total_cost += sum(model.q_ijkl[i, k, j, l] * j.cost for i in hots for k in intervals for j in colds for l in intervals if j.__class__ == Utility)
         else:
-            return sum(model.q_ijk[i, j, k] * i.cost for i in hots for j in colds for k in intervals if i.__class__ == Utility)
+            total_cost += sum(model.q_ijk[i, j, k] * i.cost for i in hots for j in colds for k in intervals if i.__class__ == Utility)
+            total_cost += sum(model.q_ijk[i, j, k] * j.cost for i in hots for j in colds for k in intervals if j.__class__ == Utility)
+        return total_cost
 
+    # set up the objective function
     if cost_selected == "matching":
         model_to_solve.obj = Objective(rule=matches_min_rule)
     elif cost_selected == "cost":
         model_to_solve.obj = Objective(rule=utility_cost_min_rule)
-#    model_to_solve.obj = Objective(rule=matches_min_rule)
 
     # zero residual constraint
     def zero_residual_rule(model, i, r):
@@ -152,6 +159,7 @@ def solve_transshipment_model(network: Network,
         """
         constraint function: heat conservation of each temperature interval
         the total heat entering must equal to heat exiting temperature interval
+        , is s.t. in paper.
         """
         if model_selected == "M4":
             return Constraint.Skip
@@ -230,22 +238,39 @@ def solve_transshipment_model(network: Network,
     s_time = time()
     solver = SolverFactory("glpk")
     if log_file:
-        solver.solve(model_to_solve, logfile="solver.log", tee=True)
+        results = solver.solve(model_to_solve, logfile="solver.log", tee=True)
     else:
-        solver.solve(model_to_solve)
+        results = solver.solve(model_to_solve)
 
-    # get results
+    # check if the model is feasible
+    from pyomo.opt import SolverStatus, TerminationCondition
+    if results.solver.status == SolverStatus.ok and results.solver.termination_condition == TerminationCondition.optimal:
+        print("Model is feasible")
+    
+    # calculate objective value
+    sum_y = 0
     if cost_selected == "matching":
         sum_y = sum([value(model_to_solve.y_ij[h, c]) for h in hots for c in colds])
     elif cost_selected == "cost":
         if model_selected == "M4":
-            sum_y = sum([value(model_to_solve.q_ijkl[i, k, j, l]) * i.cost for i in hots for k in intervals for j in colds for l in intervals if i.__class__ == Utility])
+            sum_y += sum([value(model_to_solve.q_ijkl[i, k, j, l]) * i.cost for i in hots for k in intervals for j in colds for l in intervals if i.__class__ == Utility])
+            sum_y += sum([value(model_to_solve.q_ijkl[i, k, j, l]) * j.cost for i in hots for k in intervals for j in colds for l in intervals if j.__class__ == Utility])
         else:
-            sum_y = sum([value(model_to_solve.q_ijk[i, j, k]) * i.cost for i in hots for j in colds for k in intervals if i.__class__ == Utility])
-    else:
-        sum_y = 0
+            sum_y += sum([value(model_to_solve.q_ijk[i, j, k]) * i.cost for i in hots for j in colds for k in intervals if i.__class__ == Utility])
+            sum_y += sum([value(model_to_solve.q_ijk[i, j, k]) * j.cost for i in hots for j in colds for k in intervals if j.__class__ == Utility])
+
     print("Hot stream number: {}\nCold stream number: {}\nTemperature interval number: {}".format(len(hots), len(colds), len(intervals)))
     print("Objective: y = {}\nSolved in {} seconds".format(sum_y, round(time() - s_time, 6)))
+    
+    # calculate the total hot and cold utility
+    total_hot_utility: float = 0
+    total_cold_utility: float = 0
+    
+    total_hot_utility = sum([value(model_to_solve.q_ijk[i, j, k]) for i in hots for j in colds for k in intervals if i.__class__ == Utility])
+    total_cold_utility = sum([value(model_to_solve.q_ijk[i, j, k]) for i in hots for j in colds for k in intervals if j.__class__ == Utility])
+    
+    print("Total hot utility: {}\nTotal cold utility: {}".format(total_hot_utility, total_cold_utility))
+    print("Total utility: {}".format(total_hot_utility + total_cold_utility))
     
     # create list of heat exchanger matching from the results
     hexs: list[MatchingHEX] = []
@@ -262,11 +287,12 @@ def solve_transshipment_model(network: Network,
                             q = sum(value(model_to_solve.q_ijk[i, j, k]) for k in network.T)
                         if q <= 0:
                             continue
+                    
                     hx_name: str = f"EX-{hx_id}"
                     hx_id += 1
                     if network.model == "M4":
                         diff_t = network.diff_t_min
-                        q = sum(value(model_to_solve.q_ijkl[i, k, j, l]) for k in network.T for l in network.T)
+                        #q = sum(value(model_to_solve.q_ijkl[i, k, j, l]) for k in network.T for l in network.T)
                         t_h_max: float = max(
                             [k.t_max for k in network.T for l in network.T if value(model_to_solve.q_ijkl[i, k, j, l]) > 0])
                         t_h_min: float = min(
@@ -279,11 +305,21 @@ def solve_transshipment_model(network: Network,
                                                 cold_interval=TemperatureInterval(t_c_max, t_c_min), duty=q,
                                                 name=hx_name))
                     else:
-                        q = sum(value(model_to_solve.q_ijk[i, j, k]) for k in network.T)
+                        #q = sum(value(model_to_solve.q_ijk[i, j, k]) for k in network.T)
                         t_max: float = max([k.t_max for k in network.T if value(model_to_solve.q_ijk[i, j, k]) > 0])
                         t_min: float = min([k.t_min for k in network.T if value(model_to_solve.q_ijk[i, j, k]) > 0])
                         hexs.append(MatchingHEX(hot=i, cold=j, hot_interval=TemperatureInterval(t_max, t_min),
                                                 cold_interval=j.interval, duty=q, name=hx_name))
+                    
+                    # create matching hex object
+                    if debug:
+                        print(f"Match: {i} -> {j}")
+                        print(f"total duty = {q}")
+                        for k in network.T:
+                            print(f"q_ijk:{k}:{value(model_to_solve.q_ijk[i, j, k])}")
+                        print(f"hot interval: {hexs[-1].hot_interval}")
+                        print(f"cold interval: {hexs[-1].cold_interval}")
+                        print()
             except KeyError:
                 pass
     return hexs
@@ -294,7 +330,7 @@ def print_matches_transshipment(hexs: list[MatchingHEX]):
     print(f"Number of Matches: {len(hexs)}")
     i = 1
     for hx in hexs:
-        print(f"{i}: {hx.hot.name} <-> {hx.cold.name} , Q = {hx.duty:.2f}")
+        print(f"{i}: {repr(hx)}")
         i += 1
     print("------- End of Matching ------")
     
