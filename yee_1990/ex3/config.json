@@ -1,0 +1,9 @@
+{
+    "NOK": "auto",
+    "Epsilon_dt": 1.0,
+    "Omega_Q_factor": 1.5,
+    "Omega_T": 450,
+    "Allow_Splits": true,
+    "solver_name": "couenne",
+    "time_limit_seconds": 1800
+}
