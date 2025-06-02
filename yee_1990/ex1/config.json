@@ -4,6 +4,6 @@
     "Omega_Q_factor": 2.0,
     "Omega_T": 200,
     "Allow_Splits": true,
-    "solver_name": "couenne",
+    "solver_name": "bonmin",
     "time_limit_seconds": 600
 }

@@ -5,6 +5,10 @@ from pyomo.opt import SolverFactory
 import json
 import os
 
+# Main default
+COUENNE_SOLVER = 'couenne'  # Default solver for MINLP problems
+BONMIN_SOLVER = 'bonmin'  # Alternative solver for MINLP problems
+
 def load_data(base_path="yee_1990/ex1", 
               config_filename='config.json', 
               streams_filename='streams.csv', 
@@ -38,13 +42,13 @@ def load_data(base_path="yee_1990/ex1",
             'Omega_Q_factor': 2.0,
             'Omega_T': 200,    # Defaulting to a tighter Omega_T
             'Allow_Splits': True,
-            'solver_name': 'couenne',
+            'solver_name': 'bonmin',
             'time_limit_seconds': 300
         }
     except json.JSONDecodeError:
         raise ValueError(f"Error decoding JSON from {config_filepath}. Please check its format.")
 
-
+    # Load streams and utilities from CSV files
     df_streams = pd.read_csv(streams_filepath)
     data['streams'] = df_streams.set_index('Name').to_dict('index')
     
@@ -78,9 +82,11 @@ def load_data(base_path="yee_1990/ex1",
         data['NOK'] = nok_config
     else:
         raise ValueError(f"Invalid NOK value in config: {nok_config}. Must be 'auto' or an integer.")
-        
-    data['STAGES'] = list(range(1, data['NOK'] + 1))
-    data['TEMP_LOCS'] = list(range(1, data['NOK'] + 2))
+
+    print(f"Number of Stages (NOK): {data['NOK']}")
+    
+    data['STAGES'] = list(range(1, data['NOK'] + 1))     # Stages is [1, 2, ..., NOK]
+    data['TEMP_LOCS'] = list(range(1, data['NOK'] + 2))  # Temperature locations are [1, 2, ..., NOK+1]
 
     # Estimate Omega_Q
     max_enthalpy_change = 0
@@ -226,6 +232,10 @@ def build_hen_model(data):
     # Example: model.TOUT_actual_H1 = pyo.Var(bounds=(data['streams']['H1']['TOUT_min'], data['streams']['H1']['TOUT_max']))
     # For now, assume fixed TIN_spec, TOUT_spec for overall balance. Can be extended.
 
+    model.Area_match = pyo.Var(model.HP, model.CP, model.STAGES, domain=pyo.NonNegativeReals, bounds=(0, 1e6)) # Add a reasonable upper bound for area
+    model.Area_cu = pyo.Var(model.HP, model.CU, domain=pyo.NonNegativeReals, bounds=(0, 1e6))
+    model.Area_hu = pyo.Var(model.CP, model.HU, domain=pyo.NonNegativeReals, bounds=(0, 1e6))
+
     # --- CONSTRAINTS ---
     # Eq. 1: Overall Heat Balance (Implicitly handled by stagewise and utility balances if TIN/TOUT are fixed)
     # If TIN/TOUT are variables, this equation is needed. For now, assume fixed.
@@ -339,16 +349,6 @@ def build_hen_model(data):
             return sum(m.z_match[i,j,k] for i in m.HP) <= 1
         model.no_split_cold = pyo.Constraint(model.CP, model.STAGES, rule=no_split_cold_rule)
 
-    # Make sure constraints like dt2_feasibility use model.Epsilon_dt_param and model.Omega_T_param
-    # Example for temp_mono rules:
-    def temp_mono_hot_rule(m, i, k_loc):
-        return m.t_hot[i, k_loc] >= m.t_hot[i, k_loc+1] # Removed + m.Epsilon_dt/1000
-    model.temp_mono_hot = pyo.Constraint(model.HP, model.STAGES, rule=temp_mono_hot_rule)
-    
-    def temp_mono_cold_rule(m, j, k_loc):
-        return m.t_cold[j, k_loc] >= m.t_cold[j, k_loc+1] # Removed + m.Epsilon_dt/1000
-    model.temp_mono_cold = pyo.Constraint(model.CP, model.STAGES, rule=temp_mono_cold_rule)
-
     # Apply Forbidden Matches
     for h_forbid, c_forbid_util in data.get('forbidden_matches', []):
         # Check if h_forbid and c_forbid_util are valid stream/utility names
@@ -380,8 +380,59 @@ def build_hen_model(data):
                     print(f"Added required match constraint: {h_req}-{c_req} >= {min_q_total} kW total")
                 except KeyError:
                     print(f"Warning: Could not create required match constraint for {h_req}-{c_req}. Check stream names and model indexing.")
-                    
+
+    # --- AREA CALCULATIONS AND LOGIC ---
+    # Eq. 9: Area Definitions for Matches
+    # NEW Area Definition Constraints
+    def area_definition_match_rule(m, i, j, k):
+        lmtd_factor_base = (m.dt_match_s1[i,j,k] * m.dt_match_s2[i,j,k] * (m.dt_match_s1[i,j,k] + m.dt_match_s2[i,j,k]) / 2.0)
+        lmtd_factor = (lmtd_factor_base + 1e-9)**(1/3.0)
+        U_LMTD_term = (lmtd_factor * m.U_match[i,j]) + 1e-9
+        
+        # q_match = Area_match * U_LMTD_term, but only if z_match = 1
+        # If z_match = 0, then q_match = 0 and Area_match = 0 (enforced by bounds and other logic)
+        return m.q_match[i,j,k] == m.Area_match[i,j,k] * U_LMTD_term # This holds if z_match=1
+    model.Eq_AreaDefMatch = pyo.Constraint(model.HP, model.CP, model.STAGES, rule=area_definition_match_rule)
+
+    # Add constraints to link Area_match to z_match
+    def area_match_logic_upper_rule(m, i, j, k):
+        return m.Area_match[i,j,k] <= 1e6 * m.z_match[i,j,k] # 1e6 is a Big-M for area
+    model.Eq_AreaMatchLogicUpper = pyo.Constraint(model.HP, model.CP, model.STAGES, rule=area_match_logic_upper_rule)
+    # Area_match >= 0 is already handled by NonNegativeReals. If z_match=0, q_match=0.
+    # If q_match=0, and U_LMTD_term > 0, then Area_match will be driven to 0 by the area_definition_match_rule.
+
+    # Similar constraints for Area_cu and Area_hu:
+    def area_definition_cu_rule(m, i, cu):
+        dt2_cu_val = m.TOUT_spec[i] - m.TIN_utility[cu] # Parameter expression
+        lmtd_factor_base = (m.dt_cu_s1[i,cu] * dt2_cu_val * (m.dt_cu_s1[i,cu] + dt2_cu_val) / 2.0)
+        lmtd_factor = (lmtd_factor_base + 1e-9)**(1/3.0)
+        U_LMTD_term = (lmtd_factor * m.U_cu[i,cu]) + 1e-9
+        return m.q_cu[i,cu] == m.Area_cu[i,cu] * U_LMTD_term
+    model.Eq_AreaDefCU = pyo.Constraint(model.HP, model.CU, rule=area_definition_cu_rule)
+
+    def area_cu_logic_upper_rule(m, i, cu):
+        return m.Area_cu[i,cu] <= 1e6 * m.z_cu[i,cu]
+    model.Eq_AreaCULogicUpper = pyo.Constraint(model.HP, model.CU, rule=area_cu_logic_upper_rule)
+
+    def area_definition_hu_rule(m, j, hu):
+        dt2_hu_val = m.TOUT_utility[hu] - m.TOUT_spec[j] # Parameter expression
+        lmtd_factor_base = (m.dt_hu_s1[j,hu] * dt2_hu_val * (m.dt_hu_s1[j,hu] + dt2_hu_val) / 2.0)
+        lmtd_factor = (lmtd_factor_base + 1e-9)**(1/3.0)
+        U_LMTD_term = (lmtd_factor * m.U_hu[j,hu]) + 1e-9
+        return m.q_hu[j,hu] == m.Area_hu[j,hu] * U_LMTD_term
+    model.Eq_AreaDefHU = pyo.Constraint(model.CP, model.HU, rule=area_definition_hu_rule)
+
+    def area_hu_logic_upper_rule(m, j, hu):
+        return m.Area_hu[j,hu] <= 1e6 * m.z_hu[j,hu]
+    model.Eq_AreaHULogicUpper = pyo.Constraint(model.CP, model.HU, rule=area_hu_logic_upper_rule)
+
     # --- OBJECTIVE FUNCTION (Eq. 9) ---
+    # Modify area_cost_term_expression to take Area variable as input
+    def area_cost_term_reformed(m, Area_var, CA, CB, z_var): # Note: Area_var is now an argument
+        epsilon_for_power_base = 1e-6 
+        cost_for_active_unit = CA * ( (Area_var + epsilon_for_power_base)**CB )
+        return cost_for_active_unit * z_var
+
     def area_cost_term_expression(m, q, U, dt1, dt2, CA, CB, z_var):
         """
         Returns a Pyomo expression for the area-dependent capital cost for one exchanger.
@@ -446,10 +497,14 @@ def build_hen_model(data):
     for i in model.HP:
         for j in model.CP:
             for k in model.STAGES:
-                process_capital_cost_area_expr += area_cost_term_expression(
-                                                model, model.q_match[i,j,k], model.U_match[i,j], 
-                                                model.dt_match_s1[i,j,k], model.dt_match_s2[i,j,k],
+                # process_capital_cost_area_expr += area_cost_term_expression(
+                #                                 model, model.q_match[i,j,k], model.U_match[i,j], 
+                #                                 model.dt_match_s1[i,j,k], model.dt_match_s2[i,j,k],
+                #                                 model.CA_match[i,j], model.CB_match[i,j], model.z_match[i,j,k])
+                process_capital_cost_area_expr += area_cost_term_reformed(
+                                                model, model.Area_match[i,j,k], 
                                                 model.CA_match[i,j], model.CB_match[i,j], model.z_match[i,j,k])
+    
     cold_utilities_capital_cost_area_expr = 0
     for i in model.HP:
         for cu in model.CU:
@@ -457,10 +512,15 @@ def build_hen_model(data):
             dt2_cu_expr = model.TOUT_spec[i] - model.TIN_utility[cu] 
             # The feasibility constraint dt2_cu_feasibility ensures dt2_cu_expr >= Epsilon_dt if z_cu[i,cu] = 1
 
-            cold_utilities_capital_cost_area_expr += area_cost_term_expression(
-                                                model, model.q_cu[i,cu], model.U_cu[i,cu],
-                                                model.dt_cu_s1[i,cu], dt2_cu_expr, # Pass the direct expression
+            # cold_utilities_capital_cost_area_expr += area_cost_term_expression(
+            #                                     model, model.q_cu[i,cu], model.U_cu[i,cu],
+            #                                     model.dt_cu_s1[i,cu], dt2_cu_expr, # Pass the direct expression
+            #                                     model.CA_cu[i,cu], model.CB_cu[i,cu], model.z_cu[i,cu])
+            cold_utilities_capital_cost_area_expr += area_cost_term_reformed(
+                                                model, model.Area_cu[i,cu], 
                                                 model.CA_cu[i,cu], model.CB_cu[i,cu], model.z_cu[i,cu])
+            
+            
     hot_utilities_capital_cost_area_expr = 0
     for j in model.CP:
         for hu in model.HU:
@@ -468,13 +528,22 @@ def build_hen_model(data):
             dt2_hu_expr = model.TOUT_utility[hu] - model.TOUT_spec[j]
             # The feasibility constraint dt2_hu_feasibility ensures dt2_hu_expr >= Epsilon_dt if z_hu[j,hu] = 1
 
-            hot_utilities_capital_cost_area_expr += area_cost_term_expression(
-                                                model, model.q_hu[j,hu], model.U_hu[j,hu],
-                                                model.dt_hu_s1[j,hu], dt2_hu_expr, # Pass the direct expression
+            # hot_utilities_capital_cost_area_expr += area_cost_term_expression(
+            #                                     model, model.q_hu[j,hu], model.U_hu[j,hu],
+            #                                     model.dt_hu_s1[j,hu], dt2_hu_expr, # Pass the direct expression
+            #                                     model.CA_hu[j,hu], model.CB_hu[j,hu], model.z_hu[j,hu])
+            hot_utilities_capital_cost_area_expr += area_cost_term_reformed(
+                                                model, model.Area_hu[j,hu], 
                                                 model.CA_hu[j,hu], model.CB_hu[j,hu], model.z_hu[j,hu])
+    # Note: The area_cost_term_reformed function is used to calculate the area-dependent capital cost
+    # for process matches, cold utilities, and hot utilities.
 
     # Objective function: Minimize total annual cost
-    objective_expr = utility_cost_expr + fixed_charges_expr #+ process_capital_cost_area_expr #+ cold_utilities_capital_cost_area_expr + hot_utilities_capital_cost_area_expr
+    objective_expr = utility_cost_expr 
+    objective_expr += fixed_charges_expr
+    # objective_expr += process_capital_cost_area_expr
+    # objective_expr += cold_utilities_capital_cost_area_expr
+    # objective_expr += hot_utilities_capital_cost_area_expr
 
     model.total_annual_cost = pyo.Objective(
         expr = objective_expr,
@@ -488,11 +557,18 @@ def solve_hen_model(model, solver_name='couenne', tee=True, time_limit=None):
     if time_limit:
         if solver_name.lower() in ['gurobi', 'cplex']: # Check specific solver options
             solver.options['TimeLimit'] = time_limit
-        elif solver_name.lower() in ['couenne', 'bonmin', 'scip']: # Generic option often 'maxtime' or similar
+        elif solver_name.lower() in ['bonmin', 'scip']: # Generic option often 'maxtime' or similar
              # Couenne uses 'max_cpu_time' or simply relies on external timer for non-commercial
              # For open source, time limits might be harder to enforce directly via pyomo options consistently.
              # Example for SCIP: solver.options['limits/time'] = time_limit
-             solver.options['max_cpu_time'] = time_limit
+             solver.options['bonmin.time_limit'] = time_limit
+        elif solver_name.lower() in ['couenne']: # These solvers have their own time limit options
+            # Ref:
+            # Couenne 0.5.8 -- an Open-Source solver for Mixed Integer Nonlinear Optimization
+            # Mailing list: couenne@list.coin-or.org
+            # Instructions: http://www.coin-or.org/Couenne
+            # couenne from AML uses 'bonmin.time_limit' for time limit
+            solver.options['bonmin.time_limit'] = time_limit
     else:
              pass # Add specific options if known for the solver
     results = solver.solve(model, tee=tee)
@@ -510,7 +586,7 @@ def report_results(model, data):
         print("Warning: Optimal/Feasible solution not found or solver terminated prematurely.")
         # You might want to still try and print whatever values are available if the solver found something
         # but for now, let's assume we proceed if it's at least feasible or optimal-like.
-        # return # Optionally exit if no good solution
+        return # Optionally exit if no good solution
 
     try:
         print(f"Total Annual Cost: {pyo.value(model.total_annual_cost):.2f}")
@@ -538,72 +614,57 @@ def report_results(model, data):
         capital_cost_area_val = total_cost_val - utility_cost_val - fixed_charges_val
         print(f"  Area-dependent Capital Cost: {capital_cost_area_val:.2f}")
 
+        # Print total area
+        total_area_val = 0
+        for i in model.HP:
+            for j in model.CP:
+                for k in model.STAGES:
+                    total_area_val += pyo.value(model.Area_match[i,j,k])
+        for i in model.HP:
+            for cu in model.CU:
+                total_area_val += pyo.value(model.Area_cu[i,cu])
+        for j in model.CP:
+            for hu in model.HU:
+                total_area_val += pyo.value(model.Area_hu[j,hu])
+        print(f"  Total Area: {total_area_val:.2f} m^2")
 
-        print("\n--- Active Process Matches (z_match=1) ---")
+        print("\n--- Active Process Matches (z_match == 1) ---")
         # ... (same as before) ...
         for i in model.HP:
             for j in model.CP:
                 for k in model.STAGES:
-                    if pyo.value(model.z_match[i,j,k]) > 0.5:
+                    if pyo.value(model.z_match[i,j,k]) == 1:
                         q_val = pyo.value(model.q_match[i,j,k])
                         dt1_val = pyo.value(model.dt_match_s1[i,j,k])
                         dt2_val = pyo.value(model.dt_match_s2[i,j,k])
-                        U_val = pyo.value(model.U_match[i,j])
-                        area_val = 0
-                        if q_val > 1e-6: # Avoid issues if q is effectively zero
-                            lmtd_factor_base_val = (dt1_val * dt2_val * (dt1_val + dt2_val) / 2.0)
-                            if lmtd_factor_base_val > 1e-9: # Avoid root of zero/negative
-                                lmtd_factor_val = (lmtd_factor_base_val)**(1/3.0)
-                                denominator_val = (lmtd_factor_val * U_val)
-                                if denominator_val > 1e-9: # Avoid division by zero
-                                    area_val = q_val / denominator_val
-                        
-                        print(f"  H:{i}-C:{j} in Stage {k}: Q={q_val:.2f}, Area={area_val:.2f}, "+
-                            f"dt1={dt1_val:.2f} (at T_h={pyo.value(model.t_hot[i,k]):.2f}, T_c={pyo.value(model.t_cold[j,k]):.2f}), "+
+                        area = pyo.value(model.Area_match[i,j,k])
+                        print(f"  H:{i}-C:{j} in Stage {k}: Q={q_val:.2f}, Area={area:.2f}, " +
+                            f"dt1={dt1_val:.2f} (at T_h={pyo.value(model.t_hot[i,k]):.2f}, T_c={pyo.value(model.t_cold[j,k]):.2f}), " +
                             f"dt2={dt2_val:.2f} (at T_h={pyo.value(model.t_hot[i,k+1]):.2f}, T_c={pyo.value(model.t_cold[j,k+1]):.2f})")
 
-        print("\n--- Active Cold Utility Usage (z_cu=1) ---")
-        # ... (same as before, ensure area calculation is robust) ...
+        print("\n--- Active Cold Utility Usage (z_cu == 1) ---")
         for i in model.HP:
             for cu in model.CU:
-                if pyo.value(model.z_cu[i,cu]) > 0.5:
+                if pyo.value(model.z_cu[i,cu]) == 1:
                     q_val = pyo.value(model.q_cu[i,cu])
                     dt1_val = pyo.value(model.dt_cu_s1[i,cu])
                     dt2_val = pyo.value(model.TOUT_spec[i] - model.TIN_utility[cu])
-                    U_val = pyo.value(model.U_cu[i,cu])
-                    area_val = 0
-                    if q_val > 1e-6 and dt1_val > 0 and dt2_val > 0: # Basic check for LMTD validity
-                        lmtd_factor_base_val = (dt1_val * dt2_val * (dt1_val + dt2_val) / 2.0)
-                        if lmtd_factor_base_val > 1e-9:
-                            lmtd_factor_val = (lmtd_factor_base_val)**(1/3.0)
-                            denominator_val = (lmtd_factor_val * U_val)
-                            if denominator_val > 1e-9:
-                                area_val = q_val / denominator_val
-                    print(f"  H:{i} with CU:{cu}: Q={q_val:.2f}, Area={area_val:.2f}, "+
-                        f"dt1={dt1_val:.2f} (Th_in_cooler={pyo.value(model.t_hot[i,model.NOK+1]):.2f}, Tcu_out={pyo.value(model.TOUT_utility[cu]):.2f}), "+
+                    area = pyo.value(model.Area_cu[i,cu])
+                    print(f"  H:{i} with CU:{cu}: Q={q_val:.2f}, Area={area:.2f}, " +
+                        f"dt1={dt1_val:.2f} (Th_in_cooler={pyo.value(model.t_hot[i,model.NOK+1]):.2f}, Tcu_out={pyo.value(model.TOUT_utility[cu]):.2f}), " +
                         f"dt2={dt2_val:.2f} (Th_out_cooler={pyo.value(model.TOUT_spec[i]):.2f}, Tcu_in={pyo.value(model.TIN_utility[cu]):.2f})")
 
-        print("\n--- Active Hot Utility Usage (z_hu=1) ---")
-        # ... (same as before, ensure area calculation is robust) ...
+        print("\n--- Active Hot Utility Usage (z_hu == 1) ---")
         for j in model.CP:
             for hu in model.HU:
-                if pyo.value(model.z_hu[j,hu]) == 1: # Check if the match exists
+                if pyo.value(model.z_hu[j,hu]) == 1:
                     q_val = pyo.value(model.q_hu[j,hu])
                     dt1_val = pyo.value(model.dt_hu_s1[j,hu])
                     dt2_val = pyo.value(model.TOUT_utility[hu] - model.TOUT_spec[j])
-                    U_val = pyo.value(model.U_hu[j,hu])
-                    area_val = 0
-                    if q_val > 1e-6 and dt1_val > 0 and dt2_val > 0:
-                        lmtd_factor_base_val = (dt1_val * dt2_val * (dt1_val + dt2_val) / 2.0)
-                        if lmtd_factor_base_val > 1e-9:
-                            lmtd_factor_val = (lmtd_factor_base_val)**(1/3.0)
-                            denominator_val = (lmtd_factor_val * U_val)
-                            if denominator_val > 1e-9:
-                                area_val = q_val / denominator_val
-                    print(f"  C:{j} with HU:{hu}: Q={q_val:.2f}, Area={area_val:.2f}, "+
-                        f"dt1={dt1_val:.2f} (Thu_in={pyo.value(model.TIN_utility[hu]):.2f}, Tc_in_heater={pyo.value(model.t_cold[j,1]):.2f}), "+
+                    area = pyo.value(model.Area_hu[j,hu])
+                    print(f"  C:{j} with HU:{hu}: Q={q_val:.2f}, Area={area:.2f}, " +
+                        f"dt1={dt1_val:.2f} (Thu_in={pyo.value(model.TIN_utility[hu]):.2f}, Tc_in_heater={pyo.value(model.t_cold[j,1]):.2f}), " +
                         f"dt2={dt2_val:.2f} (Thu_out={pyo.value(model.TOUT_utility[hu]):.2f}, Tc_out_heater={pyo.value(model.TOUT_spec[j]):.2f})")
-
     except AttributeError:
         print("Solver did not produce results or results object is not structured as expected.")
         print("This might happen if the solver was interrupted or failed before finding a solution.")
@@ -617,32 +678,30 @@ def report_results(model, data):
     print("\n--- Temperature Profiles (Location 1 is 'Hot End' of Superstructure Stage) ---")
     # Hot streams: t_hot[i,1] (inlet) -> ... -> t_hot[i,NOK+1] (outlet before CU)
     for i in model.HP:
-        # Iterate TEMP_LOCS in ascending order (1, 2, ..., NOK+1)
         profile_values = []
         for tl in model.TEMP_LOCS:
             try:
                 temp_val = pyo.value(model.t_hot[i,tl])
                 profile_values.append(f"{tl}:{temp_val:.2f}")
             except ValueError:
-                profile_values.append(f"{tl}:N/A") # Handle uninitialized vars if solver failed
+                profile_values.append(f"{tl}:N/A")
         
         inlet_temp_actual = "N/A"
         outlet_temp_spec = "N/A"
         try:
-            inlet_temp_actual = f"{pyo.value(model.t_hot[i,1]):.2f}" # Should match TIN_spec
+            inlet_temp_actual = f"{pyo.value(model.t_hot[i,1]):.2f}"
+            outlet_temp_after_process_val = f"{pyo.value(model.t_hot[i,model.NOK+1]):.2f}"
             outlet_temp_spec = f"{pyo.value(model.TOUT_spec[i]):.2f}"
         except ValueError:
             pass
 
         print(f"  H:{i}: (Inlet {inlet_temp_actual} at loc 1) " + " -> ".join(profile_values) + \
-              f" (Outlet before CU {pyo.value(model.t_hot[i,model.NOK+1]):.2f}, Target Stream OUT: {outlet_temp_spec})")
+              f" (Outlet before CU {outlet_temp_after_process_val}, Target Stream OUT: {outlet_temp_spec})")
 
-    # Cold streams: 
-    # Displayed as: t_cold[j,1] (hottest after process exch) -> ... -> t_cold[j,NOK+1] (inlet to superstructure)
+    # Cold streams: t_cold[j,1] (hottest after process exch) -> ... -> t_cold[j,NOK+1] (inlet to superstructure)
     for j in model.CP:
-        # Iterate TEMP_LOCS in ascending order (1, 2, ..., NOK+1) for display
         profile_values = []
-        for tl in model.TEMP_LOCS: # CHANGED: No longer reversed
+        for tl in model.TEMP_LOCS:
             try:
                 temp_val = pyo.value(model.t_cold[j,tl])
                 profile_values.append(f"{tl}:{temp_val:.2f}")
@@ -654,229 +713,13 @@ def report_results(model, data):
         outlet_temp_target_val = "N/A"
         try:
             inlet_temp_spec_val = f"{pyo.value(model.TIN_spec[j]):.2f}"
-            # t_cold[j,1] is the temperature of cold stream j exiting stage 1 (hottest point before HU)
             outlet_temp_after_process_val = f"{pyo.value(model.t_cold[j,1]):.2f}" 
             outlet_temp_target_val = f"{pyo.value(model.TOUT_spec[j]):.2f}"
         except ValueError:
             pass
 
-        # Clarify what the locations mean for cold streams in the printout
         print(f"  C:{j}: (Outlet before HU {outlet_temp_after_process_val} at loc 1, Target Stream OUT: {outlet_temp_target_val}) " + \
               f" <- ".join(profile_values) + f" (Inlet {inlet_temp_spec_val} at loc {model.NOK+1})")
-
-def generate_ascii_hen(model, data):
-    """
-    Generates a simplified ASCII representation of the HEN.
-    Assumes model has been solved and results are available.
-    """
-    output_lines = []
-    stream_tracks = {} # To store lines for each stream
-
-    # --- Configuration for Diagram ---
-    track_width = 80  # Max width of a stream track line
-    exchanger_label_width = 7 # Width for [ExN] or [CU:Q]
-    temp_label_width = 5 # For T=XXX
-
-    # --- 1. Initialize Stream Tracks ---
-    all_streams = sorted(data['HP']) + sorted(data['CP']) # Define an order
-    for stream_name in data['HP']:
-        stream_tracks[stream_name] = [' '] * track_width
-        try:
-            tin = pyo.value(model.TIN_spec[stream_name])
-            # Place T_in at the beginning
-            tin_label = f"T={int(tin)}"
-            stream_tracks[stream_name][0:len(stream_name)] = list(stream_name)
-            stream_tracks[stream_name][len(stream_name)+1 : len(stream_name)+1+len(tin_label)] = list(tin_label)
-            stream_tracks[stream_name][len(stream_name)+1+len(tin_label)+1] = '-'
-            stream_tracks[stream_name][len(stream_name)+1+len(tin_label)+2] = '-'
-            stream_tracks[stream_name][len(stream_name)+1+len(tin_label)+3] = '>'
-        except: pass # Handle if model not solved
-
-    for stream_name in data['CP']:
-        stream_tracks[stream_name] = [' '] * track_width
-        try:
-            tin = pyo.value(model.TIN_spec[stream_name])
-            # Place T_in at the end for cold streams (flowing right to left conceptually)
-            tin_label = f"T={int(tin)}"
-            stream_tracks[stream_name][track_width-1-len(tin_label)-3 : track_width-1-len(tin_label)] = list(tin_label)
-            stream_tracks[stream_name][track_width-1] = '<'
-            stream_tracks[stream_name][track_width-2] = '-'
-            stream_tracks[stream_name][track_width-3] = '-'
-            stream_tracks[stream_name][track_width-1-len(tin_label)-3-1-len(stream_name) : track_width-1-len(tin_label)-3-1] = list(stream_name)
-
-        except: pass
-
-
-    # --- 2. Collect Active Exchangers and Utilities ---
-    # This needs to be based on your model's solution!
-    # For simplicity, let's assume you have a list of active exchangers:
-    # active_exchangers = [
-    #    {'type': 'match', 'hot': 'H1', 'cold': 'C1', 'stage': 1, 'Q': 500, 'id': 'E1', 'pos': 20},
-    #    {'type': 'match', 'hot': 'H2', 'cold': 'C1', 'stage': 2, 'Q': 300, 'id': 'E2', 'pos': 40},
-    #    {'type': 'cu', 'hot': 'H1', 'util': 'W1', 'Q': 100, 'id': 'CU1', 'pos': 60},
-    #    {'type': 'hu', 'cold': 'C1', 'util': 'S1', 'Q': 200, 'id': 'HU1', 'pos': 10} # pos for HU is from left
-    # ]
-    # 'pos' would be a conceptual horizontal position for drawing
-
-    # You need to populate `active_exchangers` from your solved `model`
-    active_exchangers_info = []
-    ex_counter = 1
-    # Stage positions (conceptual, you might need a better way to determine horizontal pos)
-    stage_positions = {k: 15 + (k-1)*20 for k in model.STAGES}
-
-    # Process-Process Matches
-    for i in model.HP:
-        for j in model.CP:
-            for k in model.STAGES:
-                if pyo.value(model.z_match[i,j,k]) > 0.5:
-                    q_val = pyo.value(model.q_match[i,j,k])
-                    active_exchangers_info.append({
-                        'type': 'match', 'hot': i, 'cold': j, 'stage': k,
-                        'Q': q_val, 'id': f"E{ex_counter}",
-                        'pos': stage_positions.get(k, 10) # Get stage-based position
-                    })
-                    ex_counter += 1
-    
-    # Cold Utilities
-    for i in model.HP:
-        for cu_name in model.CU:
-            if pyo.value(model.z_cu[i,cu_name]) > 0.5:
-                q_val = pyo.value(model.q_cu[i,cu_name])
-                active_exchangers_info.append({
-                    'type': 'cu', 'hot': i, 'util': cu_name,
-                    'Q': q_val, 'id': f"CU{ex_counter}",
-                    'pos': track_width - exchanger_label_width -temp_label_width - 5 # Position at the end
-                })
-                ex_counter +=1
-    
-    # Hot Utilities
-    for j in model.CP:
-        for hu_name in model.HU:
-            if pyo.value(model.z_hu[j,hu_name]) > 0.5:
-                q_val = pyo.value(model.q_hu[j,hu_name])
-                active_exchangers_info.append({
-                    'type': 'hu', 'cold': j, 'util': hu_name,
-                    'Q': q_val, 'id': f"HU{ex_counter}",
-                    'pos': temp_label_width + 5 # Position at the beginning (left) for cold streams
-                })
-                ex_counter += 1
-
-    # Sort exchangers by position (important for drawing connections)
-    active_exchangers_info.sort(key=lambda ex: ex['pos'])
-
-    # --- 3. Draw Exchangers and Connections on Tracks ---
-    # This is the complex part. For each exchanger:
-    #   - Find the tracks for its hot and cold streams.
-    #   - Draw a vertical line/symbol at the 'pos'.
-    #   - Add labels.
-
-    # For a very simplified drawing:
-    # Create intermediate lines for exchanger labels and connections
-    num_streams = len(all_streams)
-    diagram_height = num_streams * 2 # Stream line + space/exchanger line
-    full_diagram_lines = [[' '] * track_width for _ in range(diagram_height)]
-
-    stream_to_row_idx = {stream: idx*2 for idx, stream in enumerate(all_streams)}
-
-    # Place initial stream tracks
-    for stream_name, track_line_list in stream_tracks.items():
-        if stream_name in stream_to_row_idx:
-            row_idx = stream_to_row_idx[stream_name]
-            full_diagram_lines[row_idx] = track_line_list[:] # Copy list
-
-    # Draw exchangers
-    for ex_info in active_exchangers_info:
-        pos = ex_info['pos']
-        ex_label = f"[{ex_info['id']}]" # Q:{int(ex_info['Q'])}
-        if len(ex_label) > exchanger_label_width:
-            ex_label = ex_label[:exchanger_label_width-1] + "]"
-
-
-        if ex_info['type'] == 'match':
-            h_stream = ex_info['hot']
-            c_stream = ex_info['cold']
-            h_row = stream_to_row_idx.get(h_stream)
-            c_row = stream_to_row_idx.get(c_stream)
-
-            if h_row is not None and c_row is not None:
-                # Mark on stream tracks
-                full_diagram_lines[h_row][pos] = '+'
-                full_diagram_lines[c_row][pos] = '+'
-                
-                # Draw vertical connection and label
-                # This assumes hot streams are above cold streams in 'all_streams' order
-                start_row = min(h_row, c_row)
-                end_row = max(h_row, c_row)
-                
-                for r in range(start_row + 1, end_row):
-                    full_diagram_lines[r][pos] = '|' # Connection line
-                
-                # Place exchanger label (e.g., in the middle)
-                label_row = (start_row + end_row) // 2
-                # Ensure enough space for label, adjust pos if needed
-                label_start_pos = max(0, pos - len(ex_label) // 2)
-                label_end_pos = min(track_width, label_start_pos + len(ex_label))
-                actual_label_len = label_end_pos - label_start_pos
-                
-                for c_idx in range(actual_label_len):
-                    if label_start_pos + c_idx < track_width :
-                         full_diagram_lines[label_row][label_start_pos + c_idx] = ex_label[c_idx]
-
-        elif ex_info['type'] == 'cu':
-            h_stream = ex_info['hot']
-            h_row = stream_to_row_idx.get(h_stream)
-            if h_row is not None:
-                cu_label_full = f"[{ex_info['util']}:{int(ex_info['Q'])}]"
-                label_start = track_width - len(cu_label_full)
-                for k_idx, char_l in enumerate(cu_label_full):
-                    full_diagram_lines[h_row][label_start + k_idx] = char_l
-                # Add Tout
-                try:
-                    tout = pyo.value(model.TOUT_spec[h_stream])
-                    tout_label = f"T={int(tout)}"
-                    full_diagram_lines[h_row][track_width - len(cu_label_full) -1 -len(tout_label) : track_width - len(cu_label_full)-1] = list(tout_label)
-                except: pass
-
-
-        elif ex_info['type'] == 'hu':
-            c_stream = ex_info['cold']
-            c_row = stream_to_row_idx.get(c_stream)
-            if c_row is not None:
-                hu_label_full = f"[{ex_info['util']}:{int(ex_info['Q'])}]"
-                for k_idx, char_l in enumerate(hu_label_full):
-                    full_diagram_lines[c_row][k_idx] = char_l
-                # Add Tout
-                try:
-                    tout = pyo.value(model.TOUT_spec[c_stream])
-                    tout_label = f"T={int(tout)}"
-                    full_diagram_lines[c_row][len(hu_label_full)+1 : len(hu_label_full)+1+len(tout_label)] = list(tout_label)
-                except: pass
-
-
-    # --- 4. Assemble and Print ---
-    output_str = "\n--- Simplified HEN ASCII Diagram ---\n"
-    for line_list in full_diagram_lines:
-        output_str += "".join(line_list) + "\n"
-    
-    output_str += "\nLegend: Hx (Hot Stream), Cx (Cold Stream), Ex (Exchanger), CUx (Cooler), HUx (Heater)\n"
-    output_str += "Q values are approximate heat loads.\n"
-    output_str += "Hot streams flow conceptually L->R, Cold streams R<-L (inlet temps at ends).\n"
-    output_str += "This is a highly simplified stage-based representation.\n"
-
-    print(output_str)
-    return output_str
-
-# --- How to use it (after solving model_ex1): ---
-# if __name__ == "__main__":
-#     # ... (load_data, build_hen_model, solve_hen_model parts) ...
-#     if results_ex1 and model_ex1.results.solver.termination_condition in \
-#        [pyo.TerminationCondition.optimal, pyo.TerminationCondition.feasible, 
-#         pyo.TerminationCondition.locallyOptimal, pyo.TerminationCondition.globallyOptimal]:
-#
-#         report_results(model_ex1, data_ex1) # Your existing report
-#         generate_ascii_hen(model_ex1, data_ex1) # Call the new diagram function
-#     else:
-#         print("Solver did not find a feasible/optimal solution. Cannot generate HEN diagram.")
 
 if __name__ == "__main__":
     # Define the base path to your data files
@@ -886,44 +729,25 @@ if __name__ == "__main__":
     problem_data = load_data(base_path=data_base_path)
     
     # Get solver settings from the loaded config
-    solver_name_from_config = problem_data['config'].get('solver_name', 'couenne')
+    solver_name_from_config = problem_data['config'].get('solver_name', COUENNE_SOLVER)
     time_limit_from_config = problem_data['config'].get('time_limit_seconds', None)
 
-
-    # --- Your previous build_hen_model function needs to be defined above this point ---
-    # Ensure temp_mono_hot/cold rules and Epsilon_dt are correctly set in build_hen_model
-    # from problem_data['config']
-
-    # Modify build_hen_model to use problem_data['config'] parameters
-    # Example (inside build_hen_model):
-    # model.Epsilon_dt = problem_data['config'].get('Epsilon_dt', 0.1)
-    # model.Omega_T = problem_data['config'].get('Omega_T', 500)
-    # if not problem_data['config'].get('Allow_Splits', True):
-    # ... add no_split_hot_rule etc.
+    # Override the solver name - for testing only
+    # solver_name_from_config = COUENNE_SOLVER # or any other solver you want to use
 
     # Build the model
     print("Building HEN model...")
-    problem_model = build_hen_model(problem_data) # build_hen_model should now use problem_data['config']
+    problem_model = build_hen_model(problem_data)
     
     print(f"Solving Example 1 with solver: {solver_name_from_config}. Time limit: {time_limit_from_config}s. This may take some time...")
-    results_ex1 = solve_hen_model(problem_model, 
+    problem_result = solve_hen_model(problem_model, 
                                   solver_name=solver_name_from_config, 
                                   tee=True, 
                                   time_limit=time_limit_from_config)
 
     # Report results
-    if results_ex1: # Check if solver actually ran and returned results
-        problem_model.results = results_ex1 # Attach results to model for reporting function
+    if problem_result: # Check if solver actually ran and returned results
+        problem_model.results = problem_result # Attach results to model for reporting function
         report_results(problem_model, problem_data)
     else:
         print("Solver did not produce results.")
-        
-    # Generate ASCII HEN diagram
-    if results_ex1 and problem_model.results.solver.termination_condition in \
-       [pyo.TerminationCondition.optimal, pyo.TerminationCondition.feasible, 
-        pyo.TerminationCondition.locallyOptimal, pyo.TerminationCondition.globallyOptimal]:
-
-        report_results(problem_model, problem_data) # Your existing report
-        generate_ascii_hen(problem_model, problem_data) # Call the new diagram function
-    else:
-        print("Solver did not find a feasible/optimal solution. Cannot generate HEN diagram.")
