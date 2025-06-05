@@ -166,3 +166,18 @@ class HENProblem:
         if abs(q_h_min) < 1e-6 : q_h_min = 0;
         if abs(q_c_min) < 1e-6 : q_c_min = 0;
         return q_h_min, q_c_min, t_pinch_hot, t_pinch_cold
+    
+    def _decode_chromosome(self, chromosome):
+        # Define chromosome segment lengths
+        len_Z = self.NH * self.NC * self.num_stages
+        len_R_hot_splits = self.NH * self.num_stages * self.NC
+        
+        z_part_flat = chromosome[:len_Z]
+        r_hot_part_flat = chromosome[len_Z : len_Z + len_R_hot_splits]
+        r_cold_part_flat = chromosome[len_Z + len_R_hot_splits:]
+
+        Z_ijk = z_part_flat.reshape((self.NH, self.NC, self.num_stages)).astype(int)
+        R_hot_splits_decoded = r_hot_part_flat.reshape((self.NH, self.num_stages, self.NC))
+        R_cold_splits_decoded = r_cold_part_flat.reshape((self.NC, self.num_stages, self.NH))
+        
+        return Z_ijk, R_hot_splits_decoded, R_cold_splits_decoded

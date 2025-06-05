@@ -2,6 +2,7 @@ import copy
 import numpy as np
 import random
 from .ga_helpers import GeneticAlgorithmHEN
+from .hen_models import HENProblem
 
 # --- Teaching-Learning-Based Optimization for HEN Synthesis ---
 class TeachingLearningBasedOptimizationHEN:
@@ -13,7 +14,7 @@ class TeachingLearningBasedOptimizationHEN:
                  pinch_deviation_penalty_factor=0.0,
                  sws_max_iter=50,
                  sws_conv_tol=0.001):
-        self.problem = problem
+        self.problem: HENProblem = problem
         self.population_size = population_size
         self.generations = generations
         self.random_seed = random_seed
@@ -40,22 +41,15 @@ class TeachingLearningBasedOptimizationHEN:
             self.population.append(self._create_random_full_chromosome())
 
     def _create_random_full_chromosome(self):
-        z_part = np.random.randint(0, 2, size=self.len_Z)
-        r_hot_part = np.random.uniform(0.01, 1.0, size=self.len_R_hot_splits)
-        r_cold_part = np.random.uniform(0.01, 1.0, size=self.len_R_cold_splits)
-        return np.concatenate((z_part, r_hot_part, r_cold_part))
+        # Resue from GeneticAlgorithmHEN
+        return GeneticAlgorithmHEN._create_random_full_chromosome(self)
 
     def _decode_chromosome(self, chromosome):
-        z_part_flat = chromosome[:self.len_Z]
-        r_hot_part_flat = chromosome[self.len_Z : self.len_Z + self.len_R_hot_splits]
-        r_cold_part_flat = chromosome[self.len_Z + self.len_R_hot_splits:]
-        Z_ijk = z_part_flat.reshape((self.problem.NH, self.problem.NC, self.problem.num_stages)).astype(int)
-        R_hot_splits_decoded = r_hot_part_flat.reshape((self.problem.NH, self.problem.num_stages, self.problem.NC))
-        R_cold_splits_decoded = r_cold_part_flat.reshape((self.problem.NC, self.problem.num_stages, self.problem.NH))
-        return Z_ijk, R_hot_splits_decoded, R_cold_splits_decoded
+        # Reuse from HENProblem
+        return self.problem._decode_chromosome(chromosome)
 
     def _calculate_fitness(self, chromosome):
-        # Reuse from GA class
+        # Reuse from GeneticAlgorithmHEN
         return GeneticAlgorithmHEN._calculate_fitness(self, chromosome)
 
     def run(self, run_id_for_print=""):

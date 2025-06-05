@@ -37,6 +37,9 @@ def run_one_trial(
 
     # 3) Solve with GA or TLBO depending on “model”:
     if model.upper() == "GA":
+        elitism_count = int(population_size * ga_elitism_frac)
+        if elitism_count < 1:
+            elitism_count = 1
         solver = GeneticAlgorithmHEN(
             problem=problem,
             population_size=population_size,
@@ -44,8 +47,7 @@ def run_one_trial(
             crossover_prob=ga_crossover_prob,
             mutation_prob_Z=ga_mutation_prob_Z_setting,
             mutation_prob_R=ga_mutation_prob_R_setting,
-            r_mutation_std_factor=ga_r_mutation_std_dev_factor_setting,
-            elitism_frac=ga_elitism_frac,
+            elitism_count=elitism_count,
             random_seed=random_seed,
             utility_cost_factor=utility_cost_factor,
             pinch_deviation_penalty_factor=pinch_dev_penalty_factor,
@@ -64,7 +66,7 @@ def run_one_trial(
             sws_conv_tol=sws_conv_tol
         )
 
-    best_chromosome, best_solution, best_cost = solver.run(run_id_for_print=f"{trial_index}")
+    best_chromosome, best_solution, best_cost = solver.run(run_id_for_print=f"{trial_index+1}")
     return (trial_index, best_chromosome,best_solution, best_cost)
 
 def main_parallel(
@@ -119,22 +121,12 @@ def main_parallel(
         # Submit each trial as a separate future to avoid lambda in map
         futures = [executor.submit(run_one_trial, *args) for args in args_list]
         all_results = [f.result() for f in concurrent.futures.as_completed(futures)]
-
-    # 3) Find the best one, if you want
-    best_result = None
-    best_cost = float('inf')
-    for result in all_results:
-        cost = result[2].get('TAC_GA_optimizing', float('inf'))
-        if cost < best_cost:
-            best_cost = cost
-            best_result = result
     
-    return best_result
+    return all_results
     
 def main(streams_file="streams.csv", utilities_file="utilities.csv", matches_U_file=None, forbidden_matches_file=None, required_matches_file=None,
          EMAT_setting=3.0, model='GA', population_size=200, generations=200, ga_crossover_prob=0.85, ga_mutation_prob_Z_setting=0.1, ga_mutation_prob_R_setting=0.1,
-         ga_r_mutation_std_dev_factor_setting=0.1, ga_elitism_count=None,
-         ga_elitism_frac=None, utility_cost_factor=1.0, pinch_dev_penalty_factor=150.0, 
+         ga_r_mutation_std_dev_factor_setting=0.1, ga_elitism_frac=0.1, utility_cost_factor=1.0, pinch_dev_penalty_factor=150.0, 
          sws_max_iter=200, sws_conv_tol=0.0001, 
          number_of_runs=8, number_of_workers=1):
     # ... (load_data_from_csv, adapt data to Stream, Utility, CostParameters, HENProblem - as before) ...
@@ -230,72 +222,18 @@ def main(streams_file="streams.csv", utilities_file="utilities.csv", matches_U_f
     all_run_results = []
     base_seed = int(time.time() / 265)
     print(f"\n--- Starting {number_of_runs} {model} Runs with EMAT = {EMAT_setting}K, Evolving Splits ---")
-    # for i in range(number_of_runs):
-    #     current_seed = base_seed + i
-    #     print(f"\n--- Running {model}: Trial {i+1}/{number_of_runs} (Seed: {current_seed}) ---")
-    #     if model.upper() == 'GA':
-    #         optimizer = GeneticAlgorithmHEN(problem=hen_problem_instance,
-    #                                         population_size=population_size,
-    #                                         generations=generations,
-    #                                         crossover_prob=ga_crossover_prob,
-    #                                         mutation_prob_Z=ga_mutation_prob_Z_setting,
-    #                                         mutation_prob_R=ga_mutation_prob_R_setting,
-    #                                         elitism_count=ga_elitism_count,
-    #                                         random_seed=current_seed,
-    #                                         utility_cost_factor=utility_cost_factor,
-    #                                         pinch_deviation_penalty_factor=pinch_dev_penalty_factor,
-    #                                         r_mutation_std_dev_factor=ga_r_mutation_std_dev_factor_setting,
-    #                                         sws_max_iter=sws_max_iter,
-    #                                         sws_conv_tol=sws_conv_tol
-    #                                         )
-            
-    #         best_Z_chromo_part, best_costs_dict_run, best_details_run = optimizer.run(run_id_for_print=f"{i+1} (Seed {current_seed})")
-    #     else: #elif model.lower() == 'tlbo':
-    #         optimizer:TeachingLearningBasedOptimizationHEN = TeachingLearningBasedOptimizationHEN(
-    #                                         problem=hen_problem_instance,
-    #                                         population_size=population_size,
-    #                                         generations=generations,
-    #                                         random_seed=current_seed,
-    #                                         utility_cost_factor=utility_cost_factor,
-    #                                         pinch_deviation_penalty_factor=pinch_dev_penalty_factor,
-    #                                         sws_max_iter=sws_max_iter,
-    #                                         sws_conv_tol=sws_conv_tol
-    #                                         )
-    #         best_Z_chromo_part, best_costs_dict_run, best_details_run = optimizer.run(run_id_for_print=f"{i+1} (Seed {current_seed})")
-    # for run_index in range(number_of_runs):
-    if number_of_workers == 1:
-        for run_index in range(number_of_runs):
-            current_seed = base_seed + run_index
-            res = run_one_trial(run_index+1, hen_problem_instance, random_seed=current_seed,
-                                model=model, population_size=population_size, generations=generations,
-                                ga_crossover_prob=ga_crossover_prob, ga_mutation_prob_Z_setting=ga_mutation_prob_Z_setting,
-                                ga_mutation_prob_R_setting=ga_mutation_prob_R_setting,
-                                ga_r_mutation_std_dev_factor_setting=ga_r_mutation_std_dev_factor_setting,
-                                ga_elitism_frac=ga_elitism_frac, utility_cost_factor=utility_cost_factor,
-                                pinch_dev_penalty_factor=pinch_dev_penalty_factor, sws_max_iter=sws_max_iter,
-                                sws_conv_tol=sws_conv_tol)
-            (current_seed, best_Z_chromo_part, best_costs_dict_run, best_details_run) = res
-            # Note: best_Z_chromo_part is now the full chromosome (Z and R parts)
-            all_run_results.append({'seed': current_seed, 'costs': best_costs_dict_run, 'chromosome': best_Z_chromo_part, 'details': best_details_run})
-            
-            current_run_true_tac = best_costs_dict_run.get('TAC_true_report', float('inf'))
-            if current_run_true_tac == float('inf'):
-                print(f"--- Finished Trial {run_index+1}/{number_of_runs} - Best True TAC: Inf ---")
-            else:
-                print(f"--- Finished Trial {run_index+1}/{number_of_runs} - Best True TAC: {current_run_true_tac:.2f} ---")
-    else:
-        res = main_parallel(problem=hen_problem_instance,
-                            model=model, population_size=population_size, generations=generations,
-                            ga_crossover_prob=ga_crossover_prob, ga_mutation_prob_Z_setting=ga_mutation_prob_Z_setting,
-                            ga_mutation_prob_R_setting=ga_mutation_prob_R_setting,
-                            ga_r_mutation_std_dev_factor_setting=ga_r_mutation_std_dev_factor_setting,
-                            ga_elitism_frac=ga_elitism_frac, utility_cost_factor=utility_cost_factor,
-                            pinch_dev_penalty_factor=pinch_dev_penalty_factor, sws_max_iter=sws_max_iter,
-                            sws_conv_tol=sws_conv_tol, number_of_runs=number_of_runs, num_workers=number_of_workers)
-
-    (current_seed, best_Z_chromo_part, best_costs_dict_run, best_details_run) = res
-    # Note: best_Z_chromo_part is now the full chromosome (Z and R parts)
-    all_run_results.append({'seed': current_seed, 'costs': best_costs_dict_run, 'chromosome': best_Z_chromo_part, 'details': best_details_run})
+    parallel_results = main_parallel(problem=hen_problem_instance,
+                        model=model, population_size=population_size, generations=generations,
+                        ga_crossover_prob=ga_crossover_prob, ga_mutation_prob_Z_setting=ga_mutation_prob_Z_setting,
+                        ga_mutation_prob_R_setting=ga_mutation_prob_R_setting,
+                        ga_r_mutation_std_dev_factor_setting=ga_r_mutation_std_dev_factor_setting,
+                        ga_elitism_frac=ga_elitism_frac, utility_cost_factor=utility_cost_factor,
+                        pinch_dev_penalty_factor=pinch_dev_penalty_factor, sws_max_iter=sws_max_iter,
+                        sws_conv_tol=sws_conv_tol, number_of_runs=number_of_runs, num_workers=number_of_workers)
+    for res in parallel_results:
+        (current_seed, best_Z_chromo_part, best_costs_dict_run, best_details_run) = res
+        # Note: best_Z_chromo_part is now the full chromosome (Z and R parts)
+        all_run_results.append({'seed': current_seed, 'costs': best_costs_dict_run, 'chromosome': best_Z_chromo_part, 'details': best_details_run})
     
     # --- Summarize and Analyze Results ---
     # (The summary print section needs to be adapted to use 'chromosome' instead of 'Z' if you stored the full one,
@@ -351,26 +289,8 @@ def main(streams_file="streams.csv", utilities_file="utilities.csv", matches_U_f
             # ... (Structure and unit details printout)
             print("\nStructure of the absolute best run:")
             full_chromosome_best = best_run_final_info['chromosome']
-            # You'll need an instance of GA to decode if _decode_chromosome is not static
-            # Or pass the lengths needed for decoding. For simplicity, assuming you might re-instance or have access.
-            # If optimizer is the last one from the loop:
-            # create optimizer to run decode chromosome
-            optimizer = GeneticAlgorithmHEN(problem=hen_problem_instance,
-                                            population_size=population_size,
-                                            generations=generations,
-                                            crossover_prob=ga_crossover_prob,
-                                            mutation_prob_Z=ga_mutation_prob_Z_setting,
-                                            mutation_prob_R=ga_mutation_prob_R_setting,
-                                            elitism_count=ga_elitism_count,
-                                            random_seed=current_seed,
-                                            utility_cost_factor=utility_cost_factor,
-                                            pinch_deviation_penalty_factor=pinch_dev_penalty_factor,
-                                            r_mutation_std_dev_factor=ga_r_mutation_std_dev_factor_setting,
-                                            sws_max_iter=sws_max_iter,
-                                            sws_conv_tol=sws_conv_tol
-                                            )
-            if 'optimizer' in locals() and optimizer is not None:
-                Z_overall_best, _, _ = optimizer._decode_chromosome(full_chromosome_best)
+            if 'hen_problem_instance' in locals() and hen_problem_instance is not None:
+                Z_overall_best, _, _ = hen_problem_instance._decode_chromosome(full_chromosome_best)
                 details_overall = best_run_final_info['details']
                 if Z_overall_best is not None:
                     active_matches = np.argwhere(Z_overall_best == 1)
@@ -449,7 +369,7 @@ if __name__ == "__main__":
          EMAT_setting=3.0,
          model='TLBO',
          population_size=200,
-         generations=200,
+         generations=100,
          ga_crossover_prob=0.85,
          ga_mutation_prob_Z_setting=0.1,
          ga_mutation_prob_R_setting=0.1,

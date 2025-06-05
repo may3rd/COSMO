@@ -2,7 +2,7 @@ import random
 import copy
 import numpy as np
 from .utils import calculate_lmtd
-from .hen_models import Stream, Utility
+from .hen_models import Stream, Utility, HENProblem
 
 class GeneticAlgorithmHEN:
     def __init__(self, problem,
@@ -19,7 +19,7 @@ class GeneticAlgorithmHEN:
                  sws_max_iter=50,
                  sws_conv_tol=0.001): # For Gaussian mutation of R values
 
-        self.problem = problem
+        self.problem: HENProblem = problem
         self.population_size = population_size
         self.generations = generations
         self.crossover_prob = crossover_prob
@@ -51,15 +51,7 @@ class GeneticAlgorithmHEN:
             self.population.append(self._create_random_full_chromosome())
 
     def _decode_chromosome(self, chromosome):
-        z_part_flat = chromosome[:self.len_Z]
-        r_hot_part_flat = chromosome[self.len_Z : self.len_Z + self.len_R_hot_splits]
-        r_cold_part_flat = chromosome[self.len_Z + self.len_R_hot_splits:]
-
-        Z_ijk = z_part_flat.reshape((self.problem.NH, self.problem.NC, self.problem.num_stages)).astype(int)
-        R_hot_splits_decoded = r_hot_part_flat.reshape((self.problem.NH, self.problem.num_stages, self.problem.NC))
-        R_cold_splits_decoded = r_cold_part_flat.reshape((self.problem.NC, self.problem.num_stages, self.problem.NH))
-        
-        return Z_ijk, R_hot_splits_decoded, R_cold_splits_decoded
+        return self.problem._decode_chromosome(chromosome)
 
     # Inside GeneticAlgorithmHEN class:
     def _calculate_fitness(self, chromosome):
