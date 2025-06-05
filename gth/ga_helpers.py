@@ -1,256 +1,8 @@
-import numpy as np
 import random
-import math
 import copy
-import csv
-import time
-
-# --- YOUR ORIGINAL HELPER CLASSES (Stream, Utility, CostParameters, HENProblem) ---
-# Assume these are correctly defined as in your script.
-class Stream:
-    def __init__(self, id_val=None, Tin=None, Tout_target=None, CP=None,
-                 h_coeff=None, U=None, stream_type=None):
-        self.id = id_val
-        self.Tin = Tin
-        self.Tout_target = Tout_target
-        self.CP = CP
-        self.h = h_coeff
-        self.U = U
-        self.type = stream_type
-        
-class Utility:
-    def __init__(self, id_val=None, Tin=None, Tout=None, h_coeff=None, U=None,
-                 cost_per_energy_unit=None, fix_cost=None, area_cost_coeff=None,
-                 area_cost_exp=None, utility_type=None):
-        self.id = id_val
-        self.Tin = Tin
-        self.Tout = Tout
-        self.h = h_coeff
-        self.U = U
-        self.cost = cost_per_energy_unit
-        self.fix_cost = fix_cost
-        self.area_cost_coeff = area_cost_coeff
-        self.area_cost_exp = area_cost_exp
-        self.type = utility_type
-        
-class CostParameters:
-    def __init__(self, exch_fixed=0.0, exch_area_coeff=1000.0, exch_area_exp=0.6,
-                 heater_fixed=0.0, heater_area_coeff=1200.0, heater_area_exp=0.6,
-                 cooler_fixed=0.0, cooler_area_coeff=1000.0, cooler_area_exp=0.6,
-                 EMAT=10.0, U_overall=None):
-        self.exch_fixed = exch_fixed
-        self.exch_area_coeff = exch_area_coeff
-        self.exch_area_exp = exch_area_exp
-        self.heater_fixed = heater_fixed
-        self.heater_area_coeff = heater_area_coeff
-        self.heater_area_exp = heater_area_exp
-        self.cooler_fixed = cooler_fixed
-        self.cooler_area_coeff = cooler_area_coeff
-        self.cooler_area_exp = cooler_area_exp
-        self.EMAT = EMAT
-        self.U_overall = U_overall
-
-class HENProblem:
-    def __init__(self, hot_streams=None, cold_streams=None, hot_utility=None, cold_utility=None, 
-                 cost_params=None, num_stages=1, matches_U_cost=None, annual_op_hours=8000):
-        self.hot_streams = hot_streams
-        self.cold_streams = cold_streams
-        self.hot_utility = hot_utility
-        self.cold_utility = cold_utility
-        self.cost_params = cost_params
-        self.num_stages = num_stages
-        self.NH = len(hot_streams)
-        self.NC = len(cold_streams)
-        self.NHU = len(hot_utility)
-        self.NCU = len(cold_utility)
-        self.matches_U_cost = matches_U_cost
-        self.annual_op_hours = annual_op_hours
-        
-        self.U_matrix_process = np.zeros((self.NH, self.NC))
-        self.fixed_cost_process_exchangers = np.zeros((self.NH, self.NC))
-        self.area_cost_process_coeff = np.zeros((self.NH, self.NC))
-        self.area_cost_process_exp = np.zeros((self.NH, self.NC))
-        
-        self.U_heaters = np.zeros((self.NHU, self.NC))
-        self.U_coolers = np.zeros((self.NH, self.NCU))
-        
-        # Initialize with defaults from global cost_params first
-        self.U_matrix_process.fill(self.cost_params.U_overall if self.cost_params.U_overall is not None else 0) # Or handle U_overall is None case
-        self.fixed_cost_process_exchangers.fill(self.cost_params.exch_fixed)
-        self.area_cost_process_coeff.fill(self.cost_params.exch_area_coeff)
-        self.area_cost_process_exp.fill(self.cost_params.exch_area_exp)
-        self.U_heaters.fill(self.cost_params.U_overall if self.cost_params.U_overall is not None else 0)
-        self.U_coolers.fill(self.cost_params.U_overall if self.cost_params.U_overall is not None else 0)
-        
-        if matches_U_cost:
-            hot_stream_ids = {hs.id: idx for idx, hs in enumerate(self.hot_streams)}
-            cold_stream_ids = {cs.id: idx for idx, cs in enumerate(self.cold_streams)}
-            for match_spec in matches_U_cost:
-                hot_id = match_spec.get('hot')
-                cold_id = match_spec.get('cold')
-                if hot_id in hot_stream_ids and cold_id in cold_stream_ids:
-                    i = hot_stream_ids[hot_id]
-                    j = cold_stream_ids[cold_id]
-                    self.U_matrix_process[i,j] = match_spec.get('U', self.U_matrix_process[i,j]) # Use U from match, or keep default
-                    self.fixed_cost_process_exchangers[i,j] = match_spec.get('fix_cost', self.fixed_cost_process_exchangers[i,j])
-                    self.area_cost_process_coeff[i,j] = match_spec.get('area_cost_coeff', self.area_cost_process_coeff[i,j])
-                    self.area_cost_process_exp[i,j] = match_spec.get('area_cost_exp', self.area_cost_process_exp[i,j])
-
-        if self.cost_params.U_overall is None:
-            for i in range(self.NH):
-                for j in range(self.NC):
-                    if self.U_matrix_process[i,j] == 0:
-                        h_hot = self.hot_streams[i].h if self.hot_streams[i].h > 1e-9 else 1e9
-                        h_cold = self.cold_streams[j].h if self.cold_streams[j].h > 1e-9 else 1e9
-                        if self.hot_streams[i].h <= 1e-9 or self.cold_streams[j].h <= 1e-9: self.U_matrix_process[i,j] = 1e-6 
-                        else: self.U_matrix_process[i, j] = 1.0 / (1.0/h_hot + 1.0/h_cold)
-                        
-            if self.hot_utility:
-                for iu in range(self.NHU):
-                    for j in range(self.NC):
-                        if self.U_heaters[iu,j].U == 0:
-                            h_hot_util = self.hot_utility[iu].h if self.hot_utility[iu].h > 1e-9 else 1e9
-                            if self.hot_utility[iu].U is not None:
-                                self.U_heaters[iu,j] = self.hot_utility[iu].U
-                            else:
-                                h_cold_stream = self.cold_streams[j].h if self.cold_streams[j].h > 1e-9 else 1e9
-                                
-                                if h_hot_util <=1e-9 or h_cold_stream <= 1e-9:
-                                    self.U_heaters[iu,j] = 1e-6
-                                else:
-                                    self.U_heaters[iu,j] = 1.0 / (1.0/h_hot_util + 1.0/h_cold_stream)
-                                
-            if self.cold_utility:
-                for ic in range(self.NCU):
-                    for i in range(self.NH):
-                        if self.U_coolers[i,ic].U == 0:
-                            h_cold_util = self.cold_utility[ic].h if self.cold_utility[ic].h > 1e-9 else 1e9
-                            if self.cold_utility[ic].U is not None:
-                                self.U_coolers[i,ic] = self.cold_utility[ic].U
-                            else:
-                                h_hot_stream = self.hot_streams[i].h if self.hot_streams[i].h > 1e-9 else 1e9
-
-                                if h_cold_util <=1e-9 or h_hot_stream <= 1e-9:
-                                    self.U_coolers[i,ic] = 1e-6
-                                else:
-                                    self.U_coolers[i,ic] = 1.0 / (1.0/h_cold_util + 1.0/h_hot_stream)
-        
-        self.Q_H_min_pinch, self.Q_C_min_pinch, self.T_pinch_hot_actual, self.T_pinch_cold_actual = self._calculate_pinch_targets()
-        
-    def _calculate_pinch_targets(self):
-        EMAT = self.cost_params.EMAT
-        if not self.hot_streams and not self.cold_streams: return 0,0,None,None
-        temp_points = set()
-        for hs in self.hot_streams: temp_points.add(hs.Tin); temp_points.add(hs.Tout_target)
-        for cs in self.cold_streams: temp_points.add(cs.Tin + EMAT); temp_points.add(cs.Tout_target + EMAT)
-        sorted_temps = sorted(list(temp_points), reverse=True)
-        if len(sorted_temps) < 2:
-            total_hot_duty_available = sum([s.CP*(s.Tin-s.Tout_target) for s in self.hot_streams]); total_cold_duty_required = sum([s.CP*(s.Tout_target-s.Tin) for s in self.cold_streams])
-            heat_deficit = total_cold_duty_required - total_hot_duty_available; q_h_min = max(0,heat_deficit); q_c_min = max(0,-heat_deficit); return q_h_min,q_c_min,None,None
-        heat_cascade = [0.0]
-        for i in range(len(sorted_temps)-1):
-            T_high = sorted_temps[i]; T_low = sorted_temps[i+1]; delta_T_interval = T_high - T_low
-            if delta_T_interval < 1e-6: continue
-            sum_fcp_h_active = 0
-            for hs in self.hot_streams:
-                if hs.Tin > T_low and hs.Tout_target < T_high: sum_fcp_h_active += hs.CP
-            sum_fcp_c_active = 0
-            for cs in self.cold_streams:
-                cs_tin_shifted = cs.Tin + EMAT; cs_tout_shifted = cs.Tout_target + EMAT
-                if cs_tout_shifted > T_low and cs_tin_shifted < T_high: sum_fcp_c_active += cs.CP
-            delta_H_interval = (sum_fcp_h_active - sum_fcp_c_active) * delta_T_interval
-            heat_cascade.append(heat_cascade[-1] + delta_H_interval)
-        min_cascade_value = min(heat_cascade); q_h_min = 0
-        if min_cascade_value < -1e-6: q_h_min = -min_cascade_value
-        feasible_cascade = [q + q_h_min for q in heat_cascade]; q_c_min = feasible_cascade[-1]
-        try: pinch_interval_index = feasible_cascade.index(min(feasible_cascade))
-        except ValueError: pinch_interval_index = 0
-        T_pinch_shifted = sorted_temps[pinch_interval_index]; t_pinch_hot = T_pinch_shifted; t_pinch_cold = T_pinch_shifted - EMAT
-        if abs(q_h_min) < 1e-6 : q_h_min = 0;
-        if abs(q_c_min) < 1e-6 : q_c_min = 0;
-        return q_h_min, q_c_min, t_pinch_hot, t_pinch_cold
-
-# --- load_data_from_csv function (as previously defined) ---
-def load_data_from_csv(streams_filepath, utilities_filepath, matches_U_filepath=None):
-    # ... (exact same implementation as before)
-    loaded_hot_streams = []
-    loaded_cold_streams = []
-    loaded_hot_utilities = []
-    loaded_cold_utilities = []
-    loaded_matches_U = []
-    
-    try:
-        with open(streams_filepath, mode='r', newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row_idx, row in enumerate(reader):
-                try:
-                    stream_data = {'Name': row['Name'],'Type': row['Type'].lower(),'TIN_spec': float(row['TIN_spec']),'TOUT_spec': float(row['TOUT_spec']),'Fcp': float(row['Fcp'])}
-                    if stream_data['Type'] == 'hot': loaded_hot_streams.append(stream_data)
-                    elif stream_data['Type'] == 'cold': loaded_cold_streams.append(stream_data)
-                    else: print(f"Warning: Unknown stream type '{row['Type']}' for stream '{row['Name']}'. Skipping.")
-                except KeyError as e:
-                    print(f"Error: Missing column {e} in streams.csv at row {row_idx+1}.")
-                    return None,None,None,None,None
-                except ValueError as e:
-                    print(f"Error: Could not convert value to float in streams.csv at row {row_idx+1} for column {e}.")
-                    return None,None,None,None,None
-    except FileNotFoundError:
-        print(f"Error: Streams file not found at {streams_filepath}")
-        return None,None,None,None,None
-    except Exception as e:
-        print(f"Error reading streams CSV: {e}")
-        return None,None,None,None,None
-    
-    # load matches_U_cost
-    if matches_U_filepath:
-        try:
-            with open(matches_U_filepath, mode='r', newline='') as csvfile:
-                reader = csv.DictReader(csvfile)
-                for row_idx, row in enumerate(reader):
-                    try:
-                        match_U_cost = {'hot': row['Hot_Stream'], 'cold': row['Cold_Stream'], 'U': float(row['U_overall']), 'fix_cost': float(row['Fixed_Cost_Unit']), 'area_cost_coeff': float(row['Area_Cost_Coeff']), 'area_cost_exp': float(row['Area_Cost_Exp'])}
-                        loaded_matches_U.append(match_U_cost)
-                    except KeyError as e:
-                        print(f"Error: Missing column {e} in matches_U_cost.csv at row {row_idx+1}.")
-                        return None,None,None,None,None
-                    except ValueError as e:
-                        print(f"Error: Could not convert value to float in matches_U_cost.csv at row {row_idx+1} for column {e}.")
-                        return None,None,None,None,None
-        except FileNotFoundError:
-            print(f"Error: matches_U_cost file not found at {matches_U_filepath}")
-            return None,None,None,None,None
-        except Exception as e:
-            print(f"Error reading matches_U_cost CSV: {e}")
-            return None,None,None,None,None
-    else:
-        loaded_matches_U = None
-        
-    try:
-        with open(utilities_filepath, mode='r', newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            for row_idx, row in enumerate(reader):
-                try:
-                    util_data = {'Name': row['Name'],'Type': row['Type'].lower(),'TIN_utility': float(row['TIN_utility']),'TOUT_utility': float(row['TOUT_utility']),'Unit_Cost_Energy': float(row['Unit_Cost_Energy']),'U_overall': float(row['U_overall']),'Fixed_Cost_Unit': float(row['Fixed_Cost_Unit']),'Area_Cost_Coeff': float(row['Area_Cost_Coeff']),'Area_Cost_Exp': float(row['Area_Cost_Exp'])}
-                    if util_data['Type'] == 'hot_utility': loaded_hot_utilities.append(util_data)
-                    elif util_data['Type'] == 'cold_utility': loaded_cold_utilities.append(util_data)
-                    else: print(f"Warning: Unknown utility type '{row['Type']}' for utility '{row['Name']}'. Skipping.")
-                except KeyError as e:
-                    print(f"Error: Missing column {e} in utilities.csv at row {row_idx+1}.")
-                    return None,None,None,None,None
-                except ValueError as e:
-                    print(f"Error: Could not convert value to float in utilities.csv at row {row_idx+1} for column {e}.")
-                    return None,None,None,None,None
-    except FileNotFoundError:
-        print(f"Error: Utilities file not found at {utilities_filepath}")
-        return None,None,None,None,None
-    except Exception as e:
-        print(f"Error reading utilities CSV: {e}")
-        return None,None,None,None,None
-    if not loaded_hot_utilities and any(s['Type'] == 'cold' for s in loaded_cold_streams):
-        print("Warning: No hot utilities loaded...")
-    if not loaded_cold_utilities and any(s['Type'] == 'hot' for s in loaded_hot_streams):
-        print("Warning: No cold utilities loaded...")
-    return loaded_hot_streams, loaded_cold_streams, loaded_hot_utilities, loaded_cold_utilities, loaded_matches_U
+import numpy as np
+from .utils import calculate_lmtd
+from .hen_models import Stream, Utility
 
 class GeneticAlgorithmHEN:
     def __init__(self, problem,
@@ -309,29 +61,12 @@ class GeneticAlgorithmHEN:
         
         return Z_ijk, R_hot_splits_decoded, R_cold_splits_decoded
 
-    def _calculate_lmtd(self, Th_in, Th_out, Tc_in, Tc_out):
-        delta_T1 = Th_in - Tc_out
-        delta_T2 = Th_out - Tc_in
-        if delta_T1 <= 1e-6 or delta_T2 <= 1e-6:
-            if abs(delta_T1 - delta_T2) < 1e-6 and delta_T1 > 1e-6:
-                return delta_T1
-            return 1e-6
-        if abs(delta_T1 - delta_T2) < 1e-6:
-            lmtd = (delta_T1 + delta_T2) / 2.0
-        else:
-            lmtd = (delta_T1 - delta_T2) / math.log(delta_T1 / delta_T2)
-        if lmtd <= 1e-6:
-            return 1e-6
-        return lmtd
-
     # Inside GeneticAlgorithmHEN class:
     def _calculate_fitness(self, chromosome):
         Z_ijk, R_hot_splits, R_cold_splits = self._decode_chromosome(chromosome)
 
         NH = self.problem.NH
         NC = self.problem.NC
-        NHU = self.problem.NHU
-        NCU = self.problem.NCU
         ST = self.problem.num_stages
         EMAT = self.problem.cost_params.EMAT
         
@@ -521,7 +256,7 @@ class GeneticAlgorithmHEN:
                         if dTa_final < EMAT - 1e-3: penalty_EMAT += 1e7 * max(0, EMAT - dTa_final)
                         if dTb_final < EMAT - 1e-3: penalty_EMAT += 1e7 * max(0, EMAT - dTb_final)
                         
-                        lmtd_final_ex = self._calculate_lmtd(Th_in_final_ex, Th_out_final_ex, Tc_in_final_ex, Tc_out_final_ex)
+                        lmtd_final_ex = calculate_lmtd(float(Th_in_final_ex), float(Th_out_final_ex), float(Tc_in_final_ex), float(Tc_out_final_ex))
                         U_final_ex = self.problem.U_matrix_process[i_idx_final_cost_loop, j_idx_final_cost_loop]
                         area_final_ex = 1e9
                         if U_final_ex > 1e-9 and lmtd_final_ex > 1e-9 :
@@ -599,7 +334,7 @@ class GeneticAlgorithmHEN:
                 # Tc_in_cu_u = cu.Tin
                 # Tc_out_cu_u = cu.Tout
                 
-                # lmtd_cu_u = self._calculate_lmtd(Th_in_cu, Th_out_cu, Tc_in_cu_u, Tc_out_cu_u)
+                # lmtd_cu_u = calculate_lmtd(Th_in_cu, Th_out_cu, Tc_in_cu_u, Tc_out_cu_u)
                 # U_cu_u = self.problem.U_coolers[i_hot_util_loop, 0]
                 # if U_cu_u <= 1e-9 or lmtd_cu_u <= 1e-9:
                 #     area_cu_u = 1e9 # Avoid division by zero
@@ -630,7 +365,7 @@ class GeneticAlgorithmHEN:
                         if Th_out_cu < Tc_in_cu_u + EMAT - 1e-3: emat_ok_cu = False
 
                         if emat_ok_cu:
-                            lmtd_cu_u = self._calculate_lmtd(Th_in_cu, Th_out_cu, Tc_in_cu_u, Tc_out_cu_u)
+                            lmtd_cu_u = calculate_lmtd(Th_in_cu, Th_out_cu, Tc_in_cu_u, Tc_out_cu_u)
                             U_cu_u = cu_candidate.U # U from this specific cold utility object
                             area_cu_u = 1e9
                             if U_cu_u > 1e-9 and lmtd_cu_u > 1e-9: area_cu_u = Q_cooler_needed / (U_cu_u * lmtd_cu_u)
@@ -669,7 +404,7 @@ class GeneticAlgorithmHEN:
                 # Tc_out_hu_u = cs_util.Tout_target
                 # Th_in_hu_u = hu.Tin
                 # Th_out_hu_u = hu.Tout
-                # lmtd_hu_u = self._calculate_lmtd(Th_in_hu_u, Th_out_hu_u, Tc_in_hu_u, Tc_out_hu_u)
+                # lmtd_hu_u = calculate_lmtd(Th_in_hu_u, Th_out_hu_u, Tc_in_hu_u, Tc_out_hu_u)
                 # U_hu_u = self.problem.U_heaters[0, j_cold_util_loop]
                 # if U_hu_u <= 1e-9 or lmtd_hu_u <= 1e-9:
                 #     area_hu_u = 1e9 # Avoid division by zero
@@ -710,7 +445,7 @@ class GeneticAlgorithmHEN:
                         if Th_out_hu_u < Tc_in_hu_u + EMAT - 1e-3: emat_ok = False # Requires knowing Th_out_hu_u if not fixed
 
                         if emat_ok:
-                            lmtd_hu_u = self._calculate_lmtd(Th_in_hu_u, Th_out_hu_u, Tc_in_hu_u, Tc_out_hu_u)
+                            lmtd_hu_u = calculate_lmtd(Th_in_hu_u, Th_out_hu_u, Tc_in_hu_u, Tc_out_hu_u)
                             U_hu_u = hu_candidate.U # U specific to this utility type
                             area_hu_u = 1e9
                             if U_hu_u > 1e-9 and lmtd_hu_u > 1e-9:
@@ -758,9 +493,39 @@ class GeneticAlgorithmHEN:
         if hasattr(self.problem, 'Q_C_min_pinch') and self.problem.Q_C_min_pinch is not None:
             if Q_cold_consumed_kW_actual > self.problem.Q_C_min_pinch + 1e-3: penalty_pinch_deviation += self.pinch_deviation_penalty_factor * (Q_cold_consumed_kW_actual - self.problem.Q_C_min_pinch)
         
+        forbidden_matches_penalty = 0
+        # Forbidden Match Penalty
+        if hasattr(self.problem, 'forbidden_matches') and self.problem.forbidden_matches is not None:
+            for forbidden_match in self.problem.forbidden_matches:
+                for i in range(NH):
+                    for j in range(NC):
+                        if forbidden_match['hot'] == self.problem.hot_streams[i].id and forbidden_match['cold'] == self.problem.cold_streams[j].id:
+                            forbidden_matches_penalty += 1e6
+                            continue
+                    for j_cu in self.problem.cold_utility:
+                        if forbidden_match['hot'] == self.problem.hot_streams[i].id and forbidden_match['cold'] == j_cu.id:
+                            forbidden_matches_penalty += 1e6
+                            continue
+        
+        required_matches_penalty_factor = 1e6
+        required_matches_penalty = 0
+        # Required Match Penalty
+        if hasattr(self.problem, 'required_matches') and self.problem.required_matches is not None:
+            required_matches_penalty = required_matches_penalty_factor * len(self.problem.required_matches)
+            for required_match in self.problem.required_matches:
+                for i in range(NH):
+                    for j in range(NC):
+                        if required_match['hot'] == self.problem.hot_streams[i].id and required_match['cold'] == self.problem.cold_streams[j].id:
+                            # remove the penoalty if Q_ijk more than match.min_Q_total
+                            Q_match = Q_ijk_converged[i, j, 0]
+                            if Q_match > required_match['min_Q_total']:
+                                required_matches_penalty -= 1e6
+                            else:
+                                required_matches_penalty -= 1e6 * (required_match['min_Q_total'] - Q_match) / required_match['min_Q_total']
+
         total_annual_capital_cost = capital_cost_process_exchangers + capital_cost_heaters + capital_cost_coolers
         total_annual_operating_cost = annual_hot_utility_op_cost + annual_cold_utility_op_cost
-        total_penalty_applied_to_ga = penalty_EMAT + penalty_unmet_targets + penalty_pinch_deviation
+        total_penalty_applied_to_ga = penalty_EMAT + penalty_unmet_targets + penalty_pinch_deviation + forbidden_matches_penalty + required_matches_penalty
         TAC_for_GA = total_annual_capital_cost + (total_annual_operating_cost * self.utility_cost_factor) + total_penalty_applied_to_ga
         true_TAC_report = total_annual_capital_cost + total_annual_operating_cost + (penalty_EMAT + penalty_unmet_targets)
         detailed_costs = {
@@ -965,265 +730,3 @@ class GeneticAlgorithmHEN:
             probabilities = np.ones(len(current_population_evaluations)) / len(current_population_evaluations)
             selected_indices = np.random.choice(len(current_population_evaluations), size=num_to_select, p=probabilities, replace=True)
         return selected_indices.tolist()
-    
-def main(streams_file="streams.csv", utilities_file="utilities.csv", matches_U_file=None, EMAT_setting=3.0, ga_population_size=200, ga_generations=200, ga_crossover_prob=0.85, ga_mutation_prob_Z_setting=0.1, ga_mutation_prob_R_setting=0.1,
-         ga_r_mutation_std_dev_factor_setting=0.1, ga_elitism_count=None, ga_elitism_frac=None, ga_utility_cost_factor=1.0, ga_pinch_dev_penalty_factor=150.0, sws_max_iter=200, sws_conv_tol=0.0001, number_of_runs=8):
-    # ... (load_data_from_csv, adapt data to Stream, Utility, CostParameters, HENProblem - as before) ...
-    print("HEN Synthesis using Genetic Algorithm with CSV Data Loading & Evolving Splits")
-    loaded_hot_streams_data, loaded_cold_streams_data, loaded_hot_utilities_data, loaded_cold_utilities_data, loaded_matches_U = load_data_from_csv(streams_file, utilities_file, matches_U_file)
-    
-    # If no streams loaded
-    if loaded_hot_streams_data is None:
-        exit()
-    
-    hot_streams_obj_list = []
-    default_stream_h_coeff = 0
-    for s_data in loaded_hot_streams_data:
-        hot_streams_obj_list.append(Stream(id_val=s_data['Name'], Tin=s_data['TIN_spec'], Tout_target=s_data['TOUT_spec'],CP=s_data['Fcp'], h_coeff=default_stream_h_coeff, stream_type='hot'))
-    
-    cold_streams_obj_list = []
-    for s_data in loaded_cold_streams_data:
-        cold_streams_obj_list.append(Stream(id_val=s_data['Name'], Tin=s_data['TIN_spec'], Tout_target=s_data['TOUT_spec'],CP=s_data['Fcp'], h_coeff=default_stream_h_coeff, stream_type='cold'))
-    
-    primary_hot_utility_obj_list = []
-    if loaded_hot_utilities_data:
-        for hu_data in loaded_hot_utilities_data:
-            primary_hot_utility_obj_list.append(Utility(id_val=hu_data['Name'], Tin=hu_data['TIN_utility'], Tout=hu_data['TOUT_utility'],h_coeff=0, U=hu_data['U_overall'], cost_per_energy_unit=hu_data['Unit_Cost_Energy'], fix_cost=hu_data['Fixed_Cost_Unit'], area_cost_coeff=hu_data['Area_Cost_Coeff'], area_cost_exp=hu_data['Area_Cost_Exp'], utility_type='hot_utility'))
-    else:
-        primary_hot_utility_obj_list.append(Utility("DefaultHU", 500, 499, 1.0, 1.0, 999, 0, 1200, 0.6, "hot_utility"))
-    
-    primary_cold_utility_obj_list = []
-    if loaded_cold_utilities_data:
-        for cu_data in loaded_cold_utilities_data:
-            primary_cold_utility_obj_list.append(Utility(id_val=cu_data['Name'], Tin=cu_data['TIN_utility'], Tout=cu_data['TOUT_utility'],h_coeff=0, U=cu_data['U_overall'], cost_per_energy_unit=cu_data['Unit_Cost_Energy'], fix_cost=cu_data['Fixed_Cost_Unit'],area_cost_coeff=cu_data['Area_Cost_Coeff'], area_cost_exp=cu_data['Area_Cost_Exp'], utility_type='cold_utility'))
-    else:
-        primary_cold_utility_obj_list = Utility("DefaultCU", 290, 300, 1.0, 1.0, 999, 0, 1000, 0.6, "cold_utility")
-    
-    U_process_default_setting = 0.8
-    CF_process_setting = 0
-    C_area_process_setting = 1000
-    B_exp_process_setting = 0.6
-    heater_fixed_cost = loaded_hot_utilities_data[0]['Fixed_Cost_Unit'] if loaded_hot_utilities_data else 0
-    heater_area_coeff = loaded_hot_utilities_data[0]['Area_Cost_Coeff'] if loaded_hot_utilities_data else 0
-    heater_area_exp = loaded_hot_utilities_data[0]['Area_Cost_Exp'] if loaded_hot_utilities_data else 0.6
-    cooler_fixed_cost = loaded_cold_utilities_data[0]['Fixed_Cost_Unit'] if loaded_cold_utilities_data else 0
-    cooler_area_coeff = loaded_cold_utilities_data[0]['Area_Cost_Coeff'] if loaded_cold_utilities_data else 0
-    cooler_area_exp = loaded_cold_utilities_data[0]['Area_Cost_Exp'] if loaded_cold_utilities_data else 0.6
-    
-    cost_params_instance = CostParameters(exch_fixed=CF_process_setting,
-                                          exch_area_coeff=C_area_process_setting,
-                                          exch_area_exp=B_exp_process_setting,
-                                          heater_fixed=heater_fixed_cost,
-                                          heater_area_coeff=heater_area_coeff,
-                                          heater_area_exp=heater_area_exp,
-                                          cooler_fixed=cooler_fixed_cost,
-                                          cooler_area_coeff=cooler_area_coeff,
-                                          cooler_area_exp=cooler_area_exp,
-                                          EMAT=EMAT_setting,
-                                          U_overall=U_process_default_setting)
-    
-    num_stages_for_problem = max(1, len(hot_streams_obj_list), len(cold_streams_obj_list)) 
-    
-    if num_stages_for_problem == 0 and (hot_streams_obj_list or cold_streams_obj_list):
-        num_stages_for_problem = 1
-    if not hot_streams_obj_list and not cold_streams_obj_list:
-        exit()
-    
-    hen_problem_instance = HENProblem(hot_streams_obj_list,
-                                      cold_streams_obj_list,
-                                      primary_hot_utility_obj_list,
-                                      primary_cold_utility_obj_list,
-                                      cost_params_instance,
-                                      num_stages_for_problem,
-                                      matches_U_cost=loaded_matches_U)
-
-    if loaded_hot_utilities_data:
-        hen_problem_instance.U_heaters.fill(loaded_hot_utilities_data[0]['U_overall'])
-    if loaded_cold_utilities_data:
-        hen_problem_instance.U_coolers.fill(loaded_cold_utilities_data[0]['U_overall'])
-    
-    print(f"\nPinch Analysis Results (EMAT={hen_problem_instance.cost_params.EMAT}K): Q_H_min: {hen_problem_instance.Q_H_min_pinch:.2f} kW, Q_C_min: {hen_problem_instance.Q_C_min_pinch:.2f} kW")
-    
-    if hen_problem_instance.T_pinch_hot_actual is not None:
-        print(f"  T_Pinch_Hot: {hen_problem_instance.T_pinch_hot_actual:.2f} K, T_Pinch_Cold: {hen_problem_instance.T_pinch_cold_actual:.2f} K")
-
-    # If ga_elitism_frac is povide
-    if ga_elitism_frac is not None:
-        ga_elitism_count = int(ga_elitism_frac * ga_population_size)
-    elif ga_elitism_count is None and ga_elitism_frac is None:
-        ga_elitism_count = 1
-    else:
-        ga_elitism_count = ga_elitism_count
-        
-    all_run_results = []
-    base_seed = int(time.time())
-    print(f"\n--- Starting {number_of_runs} GA Runs with EMAT = {EMAT_setting}K, Evolving Splits ---")
-    for i in range(number_of_runs):
-        current_seed = base_seed + i
-        print(f"\n--- Running GA: Trial {i+1}/{number_of_runs} (Seed: {current_seed}) ---")
-        ga_optimizer = GeneticAlgorithmHEN(problem=hen_problem_instance,
-                                           population_size=ga_population_size,
-                                           generations=ga_generations,
-                                           crossover_prob=ga_crossover_prob,
-                                           mutation_prob_Z=ga_mutation_prob_Z_setting,
-                                           mutation_prob_R=ga_mutation_prob_R_setting,
-                                           elitism_count=ga_elitism_count,
-                                           random_seed=current_seed,
-                                           utility_cost_factor=ga_utility_cost_factor,
-                                           pinch_deviation_penalty_factor=ga_pinch_dev_penalty_factor,
-                                           r_mutation_std_dev_factor=ga_r_mutation_std_dev_factor_setting,
-                                           sws_max_iter=sws_max_iter,
-                                           sws_conv_tol=sws_conv_tol
-        )
-        
-        best_Z_chromo_part, best_costs_dict_run, best_details_run = ga_optimizer.run(run_id_for_print=f"{i+1} (Seed {current_seed})")
-        # Note: best_Z_chromo_part is now the full chromosome (Z and R parts)
-        all_run_results.append({'seed': current_seed, 'costs': best_costs_dict_run, 'chromosome': best_Z_chromo_part, 'details': best_details_run})
-        
-        current_run_true_tac = best_costs_dict_run.get('TAC_true_report', float('inf'))
-        if current_run_true_tac == float('inf'):
-            print(f"--- Finished Trial {i+1}/{number_of_runs} - Best True TAC: Inf ---")
-        else:
-            print(f"--- Finished Trial {i+1}/{number_of_runs} - Best True TAC: {current_run_true_tac:.2f} ---")
-
-    # --- Summarize and Analyze Results ---
-    # (The summary print section needs to be adapted to use 'chromosome' instead of 'Z' if you stored the full one,
-    #  and then decode it again if printing the Z_ijk structure of the overall best.)
-    print("\n\n--- Summary of Multiple GA Runs ---")
-    if not all_run_results:
-        print("No results to summarize.")
-    else:
-        best_overall_ga_tac = float('inf') 
-        best_run_final_info = None   
-        true_tac_values_from_runs = []
-
-        for run_result in all_run_results:
-            ga_tac = run_result['costs']['TAC_GA_optimizing']
-            true_tac_for_display = run_result['costs']['TAC_true_report']
-
-            # --- MODIFIED PRINT LOGIC ---
-            ga_tac_str = f"{ga_tac:.2f}" if ga_tac != float('inf') else "Inf"
-            true_tac_str = f"{true_tac_for_display:.2f}" if true_tac_for_display != float('inf') else "Inf"
-            
-            print(f"Run with Seed {run_result['seed']}: True TAC = {true_tac_str} (GA TAC = {ga_tac_str})")
-            # --- END OF MODIFICATION ---
-            
-            if true_tac_for_display != float('inf'):
-                true_tac_values_from_runs.append(true_tac_for_display)
-            
-            # Still compare based on ga_tac for finding the "best" run according to GA's objective
-            if ga_tac < best_overall_ga_tac : 
-                best_overall_ga_tac = ga_tac
-                best_run_final_info = copy.deepcopy(run_result)
-
-        # Overall best printout
-        if best_run_final_info and best_run_final_info['costs']['TAC_GA_optimizing'] != float('inf'):
-            overall_best_true_tac_val = best_run_final_info['costs']['TAC_true_report']
-            overall_best_ga_tac_val = best_run_final_info['costs']['TAC_GA_optimizing']
-
-            true_tac_overall_str = f"{overall_best_true_tac_val:.2f}" if overall_best_true_tac_val != float('inf') else "Inf"
-            ga_tac_overall_str = f"{overall_best_ga_tac_val:.2f}" if overall_best_ga_tac_val != float('inf') else "Inf"
-
-            print(f"\nBest True TAC found across all runs (corresponding to best GA TAC): {true_tac_overall_str}")
-            print(f"  (This solution had a GA-Optimized TAC of: {ga_tac_overall_str})")
-            print(f"Achieved with Seed: {best_run_final_info['seed']}")
-            
-            costs_to_print = best_run_final_info['costs']
-            # ... (rest of your detailed cost breakdown and structure printout) ...
-            print("\nCost Breakdown for the Best Overall Solution (based on True TAC of best GA solution):")
-            print(f"  True TAC: {costs_to_print['TAC_true_report']:.2f}, GA Opt TAC: {costs_to_print['TAC_GA_optimizing']:.2f}")
-            # ... (continue with other cost components)
-            print(f"  CapEx (Proc): {costs_to_print.get('capital_process_exchangers',0):.2f}, CapEx (H): {costs_to_print.get('capital_heaters',0):.2f}, CapEx (C): {costs_to_print.get('capital_coolers',0):.2f}")
-            print(f"  OpEx (HotU): {costs_to_print.get('op_cost_hot_utility',0):.2f}, OpEx (ColdU): {costs_to_print.get('op_cost_cold_utility',0):.2f}")
-            print(f"  Penalty (EMAT): {costs_to_print.get('penalty_EMAT_etc',0):.2f}, Penalty (Pinch): {costs_to_print.get('penalty_pinch_deviation',0):.2f}")
-
-            # ... (Structure and unit details printout)
-            print("\nStructure of the absolute best run:")
-            full_chromosome_best = best_run_final_info['chromosome']
-            # You'll need an instance of GA to decode if _decode_chromosome is not static
-            # Or pass the lengths needed for decoding. For simplicity, assuming you might re-instance or have access.
-            # If ga_optimizer is the last one from the loop:
-            if 'ga_optimizer' in locals() and ga_optimizer is not None:
-                 Z_overall_best, _, _ = ga_optimizer._decode_chromosome(full_chromosome_best)
-                 details_overall = best_run_final_info['details']
-                 if Z_overall_best is not None:
-                    active_matches = np.argwhere(Z_overall_best == 1)
-                    # ... (the rest of your existing structure print)
-                    if active_matches.size > 0:
-                        for match in active_matches:
-                            continue
-                            q_val_for_match = 0
-                            if details_overall:
-                                for detail_item in details_overall:
-                                    if detail_item.get('H') == match[0] and detail_item.get('C') == match[1] and detail_item.get('k') == match[2]:
-                                        q_val_for_match = detail_item.get('Q',0); break
-                            if q_val_for_match > 1e-6 :
-                                print(f"  Match: H{match[0]+1} ({hen_problem_instance.hot_streams[match[0]].id}) - C{match[1]+1} ({hen_problem_instance.cold_streams[match[1]].id}) at Stage {match[2]+1} (Q={q_val_for_match:.2f} kW)")
-                    else: print("  No active process-process matches with Q > 0.")
-                 # ... (Detailed printout of exchangers and utilities as before, using details_overall)
-                 if details_overall:
-                    total_Q_recovered = 0
-                    total_area_process_exch = 0
-                    Q_hot_util_op_val = 0
-                    Q_cold_util_op_val = 0
-                    print("\n  Process Heat Exchangers:"); 
-                    for detail in details_overall:
-                        if 'H' in detail and 'C' in detail:
-                            hot_name = hen_problem_instance.hot_streams[detail['H']].id
-                            cold_name = hen_problem_instance.cold_streams[detail['C']].id
-                            hot_CFp = detail['Q'] / abs(detail['Th_in'] - detail['Th_out'])
-                            hot_Split_ratio = hot_CFp / hen_problem_instance.hot_streams[detail['H']].CP
-                            cold_CFp = detail['Q'] / abs(detail['Tc_in'] - detail['Tc_out'])
-                            cold_Split_ratio = cold_CFp / hen_problem_instance.cold_streams[detail['C']].CP
-                            print(f"    H{detail['H']+1}({hot_name})-C{detail['C']+1}({cold_name}) (S{detail['k']+1}): Q={detail['Q']:.2f}, A={detail['Area']:.2f}")
-                            print(f"    - Hot stream: CFp = {hot_CFp:.2f} (SP = {hot_Split_ratio:.2f}), Th_in={detail['Th_in']:.1f}, Th_out={detail['Th_out']:.1f}")
-                            print(f"    - Cold stream: CFp = {cold_CFp:.2f} (SP = {cold_Split_ratio:.2f}), Tc_in={detail['Tc_in']:.1f}, Tc_out={detail['Tc_out']:.1f}")
-                            total_Q_recovered += detail['Q']
-                            total_area_process_exch += detail['Area']
-                    print(f"  Total Q_recovered: {total_Q_recovered:.2f} kW, Total Process Area: {total_area_process_exch:.2f} m^2")
-                    
-                    print("\n  Utility Units:")
-                    for detail in details_overall:
-                        if detail.get('type') == 'heater':
-                            print(f"    Heater for C{detail['C_idx']+1}({hen_problem_instance.cold_streams[detail['C_idx']].id}): Q={detail['Q']:.2f}, A={detail['Area']:.2f}, Tc_in={detail['Tc_in']:.1f}, Tc_out={detail['Tc_out']:.1f}")
-                            Q_hot_util_op_val += detail['Q']
-                        elif detail.get('type') == 'cooler':
-                            print(f"    Cooler for H{detail['H_idx']+1}({hen_problem_instance.hot_streams[detail['H_idx']].id}): Q={detail['Q']:.2f}, A={detail['Area']:.2f}, Th_in={detail['Th_in']:.1f}, Th_out={detail['Th_out']:.1f}")
-                            Q_cold_util_op_val += detail['Q']
-                    
-                    if Q_hot_util_op_val > 1e-6 or Q_cold_util_op_val > 1e-6:
-                        print(f"\nUtility Summary:")
-                        if Q_cold_util_op_val > 1e-6:
-                            print(f"  Total Cold Utility (Op): {Q_cold_util_op_val:.2f} kW")
-                        else:
-                            print(f"  Not require Cold Utility.")    
-                        if Q_hot_util_op_val > 1e-6:
-                            print(f"  Total Hot Utility (Op): {Q_hot_util_op_val:.2f} kW")
-                        else:
-                            print(f"  Not require Hot Utility.")
-                    else:
-                        print(f"\nNo Utility Required.")
-
-        else:
-            print("\nNo valid (finite GA TAC) best solution found across all runs.")
-
-# --- Main Execution Block ---
-# (Needs to be updated to pass new GA parameters like mutation_prob_R, r_mutation_std_dev_factor)
-if __name__ == "__main__":
-    main(streams_file="streams.csv",
-         utilities_file="utilities.csv",
-         matches_U_file="matches_U_cost.csv",
-         EMAT_setting=3.0,
-         ga_population_size=200,
-         ga_generations=200,
-         ga_crossover_prob=0.85,
-         ga_mutation_prob_Z_setting=0.1,
-         ga_mutation_prob_R_setting=0.1,
-         ga_r_mutation_std_dev_factor_setting=0.1,
-         ga_elitism_frac=0.1,
-         ga_utility_cost_factor=1.0,
-         ga_pinch_dev_penalty_factor=150.0,
-         sws_max_iter=300,
-         sws_conv_tol=0.00001,
-         number_of_runs=5)
-    
